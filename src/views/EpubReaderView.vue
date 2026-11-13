@@ -1,0 +1,1989 @@
+<template>
+  <div ref="rootEl" class="reader-view" @mousemove="onMouseMove" @wheel="onRootWheel">
+    <header class="top-bar" :class="{ visible: barsVisible }">
+      <button class="icon-btn" @click="goBack">{{ t('common.back') }}</button>
+      <span class="title">{{ bookTitle }}</span>
+      <button
+        class="book-nav"
+        :disabled="prevBookId == null"
+        :aria-label="t('reader.prevBookTitle')"
+        @click="switchBook(-1)"
+      >
+        {{ t('reader.prevBook') }}
+      </button>
+      <button
+        class="book-nav"
+        :disabled="nextBookId == null"
+        :aria-label="t('reader.nextBookTitle')"
+        @click="switchBook(1)"
+      >
+        {{ t('reader.nextBook') }}
+      </button>
+      <div class="controls">
+        <!-- 文字型纵向（连续正文无页边界）不支持双页：置灰并用卡片提示原因；
+             禁用按钮不派发指针事件，故提示挂在包裹层 -->
+        <span
+          class="spread-guard"
+          @pointerenter="openSpreadTip"
+          @pointerleave="closeTip"
+          @focusin="openSpreadTip"
+          @blur="closeTip"
+        >
+          <button :disabled="isVerticalText" @click="store.toggleSpread()">
+            {{ store.spread === 'always' ? t('reader.double') : t('reader.single') }}
+          </button>
+        </span>
+        <!-- 单本封面单独成页：仅图片型书双页模式有视觉效果，文字型书该值无意义；
+             文字即当前生效态，与相邻「单页/双页」按钮一致 -->
+        <button
+          v-if="store.layout === 'pre-paginated' && store.spread === 'always'"
+          class="cover-single"
+          @click="store.setCoverSinglePage(!store.coverSinglePage)"
+        >
+          {{ store.coverSinglePage ? t('reader.coverSolo') : t('reader.coverPair') }}
+        </button>
+        <SelectMenu
+          class="direction-select"
+          :model-value="store.direction"
+          :options="DIRECTION_OPTIONS"
+          :label="t('reader.direction')"
+          @change="onDirectionSelect"
+          @open="pinBars"
+          @close="unpinBars"
+          @trigger-enter="openDirectionTip"
+          @trigger-leave="closeTip"
+        />
+        <SelectMenu
+          class="zoom-select"
+          :model-value="zoomValue"
+          :options="zoomOptions"
+          :label="isImageLayout ? t('reader.zoom') : t('reader.fontSize')"
+          @change="onZoomSelect"
+          @open="pinBars"
+          @close="unpinBars"
+          @trigger-enter="openZoomTip"
+          @trigger-leave="closeTip"
+        />
+        <!-- AI 框选翻译：图片型书（横向 / 上→下）显示；文字型无稳定页边界，不渲染 -->
+        <AiReaderMenu
+          v-if="isImageLayout"
+          ref="aiMenuRef"
+          :ready="aiReady"
+          :active="ai.selecting"
+          :has-records="hasAiRecords"
+          :hidden-all="ai.hiddenAll"
+          @toggle="onAiButton"
+          @hide-all="onAiHideAll"
+          @collapse-all="onAiCollapseAll"
+          @expand-all="onAiExpandAll"
+          @open="pinBars"
+          @close="unpinBars"
+          @trigger-enter="openAiTip"
+          @trigger-leave="closeTip"
+        />
+        <button
+          :aria-label="t('reader.fullscreen')"
+          @click="toggleFullscreen"
+          @pointerenter="openFullscreenTip"
+          @pointerleave="closeTip"
+          @focus="openFullscreenTip"
+          @blur="closeTip"
+        >⛶</button>
+      </div>
+    </header>
+
+    <div ref="pageAreaEl" class="page-area">
+      <!-- epub.js 渲染容器：始终在布局中（打开时必须有确定宽高），加载态用提示层覆盖 -->
+      <div
+        ref="epubAreaEl"
+        class="epub-area"
+        :class="{ 'is-vertical': isVerticalText }"
+      />
+      <div v-if="loadError" class="state-tip">
+        <p>{{ t('reader.loadFailed', { message: loadError }) }}</p>
+        <button @click="goBack">{{ t('reader.backToLibrary') }}</button>
+      </div>
+      <div v-else-if="!store.ready || switching" class="state-tip">{{ t('reader.loading') }}</div>
+      <div
+        v-if="store.ready && !loadError && !isVerticalImage"
+        class="hotzone hotzone-left"
+        @click="onHotzoneClick('left')"
+      />
+      <div
+        v-if="store.ready && !loadError && !isVerticalImage"
+        class="hotzone hotzone-right"
+        @click="onHotzoneClick('right')"
+      />
+      <!-- 图片型 + 上→下：canvas 纵向视图（连续流会强制单列，故不建 rendition） -->
+      <VerticalScrollView
+        v-if="verticalSource"
+        ref="verticalRef"
+        class="epub-vertical"
+        :rows="store.verticalRows"
+        :initial-page="initialVerticalPage"
+        :sizing="verticalSizing"
+        :source="verticalSource"
+        :ai-book-title="aiBookTitle"
+        :ai-selectable="ai.selecting"
+        :ai-visible="true"
+        :ai-page-offset="1"
+        @page-change="onVerticalPageChange"
+        @turn="onVerticalStep"
+      />
+      <!-- 图片型横向：epub.js 是 iframe 渲染、无 canvas，按每页图片盒叠覆盖层，裁剪走区域截图 -->
+      <div
+        v-if="isImageHorizontal && aiBookTitle"
+        ref="aiStageEl"
+        class="ai-stage"
+        :class="{ selecting: ai.selecting }"
+      >
+        <div
+          v-for="box in aiPageBoxes"
+          :key="box.page"
+          class="ai-stage-page"
+          :style="{
+            left: `${box.left}px`,
+            top: `${box.top}px`,
+            width: `${box.width}px`,
+            height: `${box.height}px`,
+          }"
+        >
+          <AiTranslationLayer
+            :page="box.page"
+            :book-title="aiBookTitle"
+            :selectable="ai.selecting"
+            :visible="aiOverlayVisible"
+            :animate-in="false"
+            :capture-source="captureAiPage"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- DEV 诊断面板：Ctrl+Shift+D 切换（默认隐藏，正式构建不渲染） -->
+    <pre v-if="isDev && showDiag" class="debug-panel">{{ diagLines }}</pre>
+
+    <footer class="bottom-bar" :class="{ visible: barsVisible }">
+      <span class="page-indicator">{{ locationLabel }}</span>
+      <button
+        class="nav-btn"
+        :disabled="store.current?.index === 0 || !store.ready"
+        @click="requestTurn('back')"
+      >
+        {{ t('reader.prevPage') }}
+      </button>
+      <input
+        class="page-slider"
+        type="range"
+        min="0"
+        :max="Math.max(0, totalPages - 1)"
+        :value="sliderIndex"
+        :disabled="!store.locationsReady"
+        :aria-label="t('reader.dragToSeek')"
+        @input="onSlideInput"
+        @change="onSlideChange"
+        @pointerenter="openSeekTip"
+        @pointerleave="closeTip"
+        @focus="openSeekTip"
+        @blur="closeTip"
+        @pointerdown="closeTip"
+      />
+      <button
+        class="nav-btn"
+        :disabled="atEnd"
+        @click="requestTurn('forward')"
+      >
+        {{ t('reader.nextPage') }}
+      </button>
+    </footer>
+
+    <!-- 选词 / 未启用提示：底部上方居中胶囊，自动淡出 -->
+    <div v-if="aiNotice" class="ai-notice">{{ aiNotice }}</div>
+
+    <!-- 提示浮层：Teleport 到 body，顶栏毛玻璃的固定包含块不影响坐标；同一视图只挂一个实例 -->
+    <CardTip
+      :visible="tipAnchor !== null"
+      :anchor="tipAnchor"
+      :text="tipText"
+      :placement="tipPlacement"
+      :align="tipAlign"
+      @dismiss="closeTip"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import type { Contents } from 'epubjs'
+import { useEpubReaderStore } from '../stores/epubReader'
+import { useLibraryStore } from '../stores/library'
+import { getEpubDiag, pushNavDiag, waitViewsSettled } from '../services/epub'
+import { captureRegionToCanvas } from '../services/capture'
+import type { SelectOption } from '../services/selectMenu'
+import SelectMenu from '../components/ui/SelectMenu.vue'
+import CardTip from '../components/ui/CardTip.vue'
+import { useHoverTip } from '../components/ui/useHoverTip'
+import {
+  BURST_COVER_TIMEOUT_MS,
+  BURST_SETTLE_MS,
+  canReplayBurst,
+  pickEpubAnimBudget,
+  TurnPolicy,
+} from '../services/turnPolicy'
+import { cancelTurnCurl, isTurnCurlActive, playTurnCurl } from '../services/turnAnimator'
+import { attachTurnCover, doubleRaf, removeTurnCover } from '../services/turnCover'
+import { appLocale, t } from '../i18n'
+import { localizeError } from '../i18n/errors'
+import { compareTitles } from '../services/libraryList'
+import type { Direction } from '../../shared/types'
+import VerticalScrollView from '../components/reader/VerticalScrollView.vue'
+import AiTranslationLayer from '../components/reader/AiTranslationLayer.vue'
+import AiReaderMenu from '../components/reader/AiReaderMenu.vue'
+import { useAiNotice } from '../components/reader/useAiNotice'
+import { useSettingsStore } from '../stores/settings'
+import { useAiTranslationStore } from '../stores/aiTranslation'
+import { createEpubImageSource } from '../services/epubVertical'
+import type { VerticalPageSource, VerticalSizing } from '../services/verticalLayout'
+import { normalizeWheelDelta } from '../services/wheelScroll'
+import { exitFullscreen, exitedFullscreenRecently, isFullscreen, toggleFullscreen } from '../services/fullscreen'
+import { resolveReaderEsc } from '../services/readerEsc'
+
+const isDev = import.meta.env?.DEV === true
+
+const props = defineProps<{ bookId: number }>()
+
+const route = useRoute()
+const router = useRouter()
+const store = useEpubReaderStore()
+const library = useLibraryStore()
+const settingsStore = useSettingsStore()
+const ai = useAiTranslationStore()
+
+const barsVisible = ref(false)
+let hideTimer: ReturnType<typeof setTimeout> | null = null
+/** 顶栏下拉展开期间锁定可见：鼠标在触发器上移动会反复触发 showBarsTemporarily，只清一次计时器不够 */
+let barsPinned = false
+
+// —— 顶栏 / 底栏悬停提示：复用书卡的 CardTip 浮层，浮层 Teleport 到 body 不受顶栏毛玻璃包含块影响 ——
+const { tipAnchor, tipText, tipPlacement, tipAlign, openTip, openTipAt, closeTip } = useHoverTip()
+
+/** 顶栏图标按钮提示：向下展开、水平居中（上一本 / 下一本自带文字，不做提示） */
+function openFullscreenTip(event: PointerEvent | FocusEvent) {
+  openTip(event, t('reader.fullscreen'))
+}
+
+/** 下拉触发器提示：锚点由 SelectMenu 透出；图片型 EPUB 是缩放，流式 EPUB 是字号（与 :label 同键） */
+function openZoomTip(anchor: HTMLElement) {
+  openTipAt(anchor, isImageLayout.value ? t('reader.zoom') : t('reader.fontSize'))
+}
+
+/** 底栏滑块提示：向上展开（下方是屏幕边缘），拖动开始即收起 */
+function openSeekTip(event: PointerEvent | FocusEvent) {
+  openTip(event, t('reader.dragToSeek'), { placement: 'above' })
+}
+
+/** 顶栏方向下拉提示 */
+function openDirectionTip(anchor: HTMLElement) {
+  openTipAt(anchor, t('reader.direction'))
+}
+
+/** 双页按钮提示：仅在文字型纵向（禁用态）说明原因 */
+function openSpreadTip(event: PointerEvent | FocusEvent) {
+  if (!isVerticalText.value) return
+  openTip(event, t('reader.verticalTextSingle'))
+}
+
+// 顶栏 / 底栏淡出后控件已不可见：提示框同步收起，不悬浮在空处
+watch(barsVisible, (visible) => {
+  if (!visible) closeTip()
+})
+
+const loadError = ref('')
+/** 跨 ttb 方向切换重建引擎期间显示加载态 */
+const switching = ref(false)
+const epubAreaEl = ref<HTMLElement | null>(null)
+/** 根元素 ref：pageCurl 的 container（.reader-view 已是 position: relative） */
+const rootEl = ref<HTMLElement | null>(null)
+
+/** 跟随系统「减弱动态效果」：命中时翻页直通瞬切（同 ReaderView） */
+const reducedMotion =
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// DEV 诊断面板数据（每 400ms 拉取 epub.ts 的诊断缓冲）
+const diagLines = ref('')
+const showDiag = ref(false)
+let diagTimer: ReturnType<typeof setInterval> | null = null
+
+const bookTitle = computed(
+  () => library.books.find((b) => b.id === store.bookId)?.title ?? ''
+)
+
+// —— AI 框选翻译：仅图片型纵向（页边界稳定，可复用 PDF 的归一化坐标与覆盖层） ——
+/** AI 可用 = 总开关开启且选中了有效的模型配置 */
+const aiReady = computed(() => {
+  const settings = settingsStore.settings.ai
+  return settings.enabled && settings.providers.some((p) => p.id === settings.activeProviderId)
+})
+const hasAiRecords = computed(() => ai.records.length > 0)
+/** 覆盖层书名：AI 未启用时传空（不挂覆盖层） */
+const aiBookTitle = computed(() => (aiReady.value ? bookTitle.value : ''))
+/** 下拉组件句柄：进选词前需要强制收起已展开的菜单 */
+const aiMenuRef = ref<InstanceType<typeof AiReaderMenu> | null>(null)
+
+/** 底部提示胶囊：选词提示与「未启用」提示共用，自动淡出 */
+const { text: aiNotice, show: showAiNotice, clear: clearAiNotice } = useAiNotice()
+
+/** AI 选词期间抑制工具栏：框选需要完整画面，这段时间任何唤出请求都丢弃 */
+let barsSuppressedByAi = false
+
+/** AI 按钮提示：锚点由 AiReaderMenu 透出 */
+function openAiTip(anchor: HTMLElement) {
+  openTipAt(anchor, t('ai.readerHint'))
+}
+
+/** 进入 / 退出选词：进入即隐藏工具栏（选词期间不可唤出），退出后保持隐藏 */
+function toggleAiSelect(): void {
+  if (ai.selecting) {
+    ai.endSelect()
+    return
+  }
+  ai.beginSelect()
+  enterAiSelectUi()
+  showAiNotice(t('ai.selectHint'))
+}
+
+/** 按钮不做真 disabled：禁用态下需要能弹出「去配置」提示 */
+function onAiButton(): void {
+  if (!aiReady.value) {
+    showAiNotice(t('ai.disabledTip'))
+    return
+  }
+  toggleAiSelect()
+}
+
+function onAiHideAll(): void {
+  ai.hideAll()
+}
+
+function onAiCollapseAll(): void {
+  void ai.collapseAll()
+}
+
+function onAiExpandAll(): void {
+  void ai.expandAll()
+}
+
+// 退出选词（再次点按钮 / Esc / 框选完成）统一收起提示并解除工具栏抑制（保持隐藏）
+watch(
+  () => ai.selecting,
+  (on) => {
+    if (!on) {
+      clearAiNotice()
+      exitAiSelectUi()
+    }
+  }
+)
+
+/** 立即隐藏并清掉隐藏计时（选词进/出共用） */
+function hideBarsNow(): void {
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = null
+  barsVisible.value = false
+}
+
+/** 进入 AI 选词：立即淡出顶/底栏并接管抑制 */
+function enterAiSelectUi(): void {
+  aiMenuRef.value?.closeMenu()
+  closeTip()
+  barsPinned = false
+  barsSuppressedByAi = true
+  hideBarsNow()
+}
+
+/** 退出 AI 选词：解除抑制但保持隐藏，鼠标移到上/下边缘时唤出照旧 */
+function exitAiSelectUi(): void {
+  barsSuppressedByAi = false
+  barsPinned = false
+  hideBarsNow()
+}
+
+const totalPages = computed(() => store.totalPages())
+
+const locationLabel = computed(() => {
+  const cur = store.current
+  if (!cur) return ''
+  if (store.locationsReady && totalPages.value > 0) {
+    return `${cur.index + 1} / ${totalPages.value}`
+  }
+  return `${Math.floor(cur.percentage)}%`
+})
+
+const atEnd = computed(() => {
+  if (!store.ready) return true
+  // 文字型纵向：连续流滚动到底才派发 relocated，用进度兜底避免末尾「下一屏」失效一次
+  if (isVerticalText.value && store.current && store.current.percentage >= 99.9) return true
+  if (store.locationsReady && totalPages.value > 0) return store.atEnd
+  return false
+})
+
+// —— 阅读方向 / 纵向视图 ——
+const DIRECTION_OPTIONS = computed<SelectOption<Direction>[]>(() => [
+  { value: 'ltr', label: t('reader.dirLtr') },
+  { value: 'rtl', label: t('reader.dirRtl') },
+  { value: 'ttb', label: t('reader.dirTtb') },
+])
+/** 方向三态循环顺序（r 键依次切换） */
+const DIRECTION_CYCLE: Direction[] = ['ltr', 'rtl', 'ttb']
+
+const isVertical = computed(() => store.direction === 'ttb')
+/** 文字型纵向：epub.js 连续流（scrolled + continuous），双页不可用 */
+const isVerticalText = computed(() => isVertical.value && store.layout === 'reflowable')
+/** 图片型纵向：不建 rendition，由 VerticalScrollView 负责绘制与滚动 */
+const isVerticalImage = computed(() => isVertical.value && store.layout === 'pre-paginated')
+
+const verticalRef = ref<InstanceType<typeof VerticalScrollView> | null>(null)
+/** 图片型纵向页面源：book 就绪后创建（内部按页做 LRU 元数据缓存） */
+const verticalSource = computed<VerticalPageSource | null>(() => {
+  if (!isVerticalImage.value || !store.ready) return null
+  const book = store.getBook()
+  return book ? createEpubImageSource(book) : null
+})
+/** 纵向尺寸：图片型 zoom 100 = 按视口高铺满，其余按比例放大缩小 */
+const verticalSizing = computed<VerticalSizing>(() => ({ mode: 'custom', scale: store.zoom / 100 }))
+/** 纵向首次定位：当前 spine 索引（双页时对齐到组首页） */
+const initialVerticalPage = computed(() => store.current?.index ?? 0)
+
+/** 纵向顶部行变化 → 回写当前位置（store 内 1s 防抖落盘） */
+function onVerticalPageChange(page: number): void {
+  store.setVerticalPosition(page)
+  navIndex = store.current?.index ?? navIndex
+  // 屏内可同时有多页：按「已挂载行包含的页」裁剪临时框（页码已按 +1 换算成真实页）
+  ai.prunePending(verticalRef.value?.visibleAiPages() ?? [page + 1])
+}
+
+/** 纵向视图内热区点击：滚到上/下一行顶部（无动画） */
+function onVerticalStep(delta: number): void {
+  verticalRef.value?.step(delta)
+}
+
+/** 顶栏下拉选方向（值来自 DIRECTION_OPTIONS） */
+function onDirectionSelect(value: Direction): void {
+  void applyDirection(value)
+}
+
+/** r 键三态循环：ltr → rtl → ttb */
+function cycleDirection(): void {
+  const index = DIRECTION_CYCLE.indexOf(store.direction)
+  void applyDirection(DIRECTION_CYCLE[(index + 1) % DIRECTION_CYCLE.length])
+}
+
+/**
+ * 切换阅读方向：ltr ↔ rtl 只改引擎方向（不重建），跨 ttb 边界必须重建引擎
+ * （分页流 ↔ 连续流的 flow / manager 不同），期间作废在飞的翻页编排并显示加载态。
+ */
+async function applyDirection(next: Direction): Promise<void> {
+  // 打开中 / 上一次重建引擎尚未完成：忽略本次选择，避免并发销毁重建
+  if (next === store.direction || !store.ready || switching.value) return
+  openSeq++
+  pendingDelta = 0
+  pendingJump = null
+  clearBurstSession()
+  discardTurn()
+  sliderDragging = false
+  slideStartIndex = null
+  slideStartCfi = null
+  slideFromPromise = null
+  if (slideTimer) {
+    clearTimeout(slideTimer)
+    slideTimer = null
+  }
+  // ltr ↔ rtl：引擎不重建，仅改书写方向，阅读位置不变
+  if ((next === 'ttb') === isVertical.value) {
+    await store.setDirection(next)
+    navIndex = store.current?.index ?? navIndex
+    sliderIndex.value = navIndex ?? 0
+    return
+  }
+  switching.value = true
+  // 旧引擎即将销毁：先摘 iframe 事件，重建后按新引擎重新绑定
+  unbindRenditionEvents()
+  try {
+    await store.setDirection(next)
+    navIndex = store.current?.index ?? 0
+    sliderIndex.value = navIndex
+  } finally {
+    await nextTick() // 等纵向视图挂载 / epub 容器重建后再挂事件
+    bindRenditionEvents()
+    switching.value = false
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', onResize)
+  if (isDev) {
+    diagTimer = setInterval(() => {
+      // 封面策略日志（[cover]/open 行）在前，需全部显示，仅截掉过多的通用渲染日志
+      diagLines.value = getEpubDiag().join('\n')
+    }, 400)
+  }
+  void openBook(props.bookId)
+})
+
+watch(
+  () => props.bookId,
+  (id) => {
+    void openBook(id)
+  }
+)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onResize)
+  if (diagTimer) clearInterval(diagTimer)
+  if (hideTimer) clearTimeout(hideTimer)
+  stopAiBoxLoop()
+  openSeq++ // 作废进行中的队列消费与动画编排
+  pendingDelta = 0
+  pendingJump = null
+  clearBurstSession()
+  unbindRenditionEvents()
+  discardTurn()
+  ai.reset(null) // 作废在途翻译：离开阅读页后返回的结果不再渲染
+  store.close()
+})
+
+// —— 打开串行化（同 PDF 阅读器：快速连点时后一次 open 等前一次完成）——
+let openChain: Promise<void> = Promise.resolve()
+function openBook(id: number | string) {
+  // 路由参数是字符串（vue-router params 会字符串化），统一归一为 number；
+  // 否则 store.bookId 存字符串，与书库 id 的严格比较失败，上一本/下一本按钮会常灰
+  const numId = Number(id)
+  if (!Number.isFinite(numId)) return
+  openChain = openChain.then(() => doOpen(numId))
+  void openChain
+    .then(() => showBarsTemporarily())
+    .catch((e) => {
+      loadError.value = localizeError(e)
+    })
+}
+
+async function doOpen(id: number) {
+  switching.value = false
+  loadError.value = ''
+  // 跨书切换：作废进行中的队列消费与翻页编排并揭除冻结帧，避免旧书画面残留在新书阅读区
+  openSeq++
+  pendingDelta = 0
+  pendingJump = null
+  navIndex = null
+  policy.reset()
+  clearBurstSession()
+  discardTurn()
+  sliderDragging = false
+  slideStartIndex = null
+  slideStartCfi = null
+  slideFromPromise = null
+  unbindRenditionEvents()
+  store.close() // 落盘上一本进度并销毁旧文档
+  await nextTick()
+  if (!epubAreaEl.value) throw new Error(t('reader.viewNotReady'))
+  await store.open(id, epubAreaEl.value)
+  // 译文按真实页码存：先载入本书记录，纵向切换后覆盖层直接有数据
+  void ai.load(id)
+  navIndex = store.current?.index ?? 0 // 新书权威页索引
+  sliderIndex.value = navIndex
+  bindRenditionEvents()
+}
+
+// —— iframe 内事件转发 ——
+// 键盘：焦点在 iframe 内时父文档收不到 keydown，epub.js 会把 contents 的 keydown
+// re-emit 到 rendition（passEvents）；滚动不在其转发列表，需手动挂到 iframe window 上。
+// 键盘同时直挂 iframe window 兜底：某次视图重建后转发链若断裂，快捷键就整体失效，
+// 两路到达的是同一个事件对象，由 onKeydown 开头的 WeakSet 去重，不会翻两次页。
+/** 已挂事件的 iframe window：连续流同时存在多个视图，按窗口去重避免重复滚动 */
+const frameWindows = new WeakSet<Window>()
+/** 已处理过的按键事件（iframe 直挂与 rendition 转发共用同一对象） */
+const handledKeyEvents = new WeakSet<Event>()
+
+function onFrameWheel(e: WheelEvent) {
+  // 纵向连续流：iframe 内滚轮不冒泡到父文档，手动转发给 epub 容器
+  if (isVerticalText.value) {
+    scrollEpubByWheel(e)
+    return
+  }
+  onWheel(e)
+}
+
+function onFrameKeydown(e: KeyboardEvent) {
+  onKeydown(e)
+}
+
+function onFrameMousemove(e: MouseEvent) {
+  onMouseMove(e)
+}
+
+function onFrameRendered(_section: unknown, view: { contents?: Contents } | null | undefined) {
+  attachFrameWindow(view?.contents?.window)
+}
+
+/** 给单个 iframe 挂滚轮与键盘转发（同一窗口只挂一次） */
+function attachFrameWindow(win: Window | null | undefined): void {
+  if (!win || frameWindows.has(win)) return
+  frameWindows.add(win)
+  win.addEventListener('wheel', onFrameWheel, { passive: true })
+  win.addEventListener('keydown', onFrameKeydown, true)
+}
+
+function bindRenditionEvents() {
+  const r = store.getRendition()
+  if (!r) return
+  r.on('keydown', onFrameKeydown)
+  r.on('mousemove', onFrameMousemove)
+  r.on('rendered', onFrameRendered)
+  // 首次 display 的 rendered 可能在绑定前已派发：给已在册的 iframe 补挂转发。
+  // 类型声明把返回值写成单个 Contents，运行时为 Contents[]（rendition.js getContents）
+  for (const contents of r.getContents() as unknown as Contents[]) {
+    attachFrameWindow(contents?.window)
+  }
+}
+
+function unbindRenditionEvents() {
+  const r = store.getRendition()
+  if (!r) return
+  r.off('keydown', onFrameKeydown)
+  r.off('mousemove', onFrameMousemove)
+  r.off('rendered', onFrameRendered)
+}
+
+// —— 上一本 / 下一本：与 PDF 阅读器同规则（主页=未分组按排序偏好，合集内=名称升序）——
+const contextBooks = computed(() => {
+  const cid = route.query.cid
+  if (typeof cid === 'string' && cid) {
+    return [...library.books]
+      .filter((b) => b.collectionId === Number(cid))
+      .sort((a, b) => compareTitles(a.title, b.title, appLocale.value))
+  }
+  return library.filteredBooks.filter((b) => !b.collectionId)
+})
+
+const contextIndex = computed(() =>
+  store.bookId == null ? -1 : contextBooks.value.findIndex((b) => b.id === store.bookId)
+)
+
+const prevBookId = computed(() => {
+  const i = contextIndex.value
+  return i > 0 ? contextBooks.value[i - 1].id : null
+})
+
+const nextBookId = computed(() => {
+  const i = contextIndex.value
+  return i >= 0 && i < contextBooks.value.length - 1 ? contextBooks.value[i + 1].id : null
+})
+
+function switchBook(delta: 1 | -1) {
+  const id = delta === 1 ? nextBookId.value : prevBookId.value
+  if (id == null) return
+  router.push({ name: 'reader', params: { bookId: id }, query: { ...route.query } })
+}
+
+function goBack() {
+  const cid = route.query.cid
+  if (typeof cid === 'string' && cid) {
+    router.push({ path: '/', query: { collection: cid } })
+  } else {
+    router.push('/')
+  }
+}
+
+function onHotzoneClick(side: 'left' | 'right') {
+  // 纵向：左右热区不再镜像（连续流只有上下语义），右 = 下一屏、左 = 上一屏
+  if (isVertical.value) {
+    requestTurn(side === 'right' ? 'forward' : 'back')
+    return
+  }
+  // 方向感知（同 PDF ReaderView）：LTR 右热区 = 下一页；RTL 左热区 = 下一页
+  const forward = store.direction === 'ltr' ? side === 'right' : side === 'left'
+  requestTurn(forward ? 'forward' : 'back')
+}
+
+// —— 翻页动画编排：截图冻结帧遮盖 epub.js 重建过程 + 复用 pageCurl 卷曲层 ——
+// 净位移队列：输入只累加 pendingDelta，由单一消费者串行执行，连翻合并为一次到位
+let pendingDelta = 0
+/**
+ * 显式跳转目标（滑块 / Home / End）：与 pendingDelta 量纲分离（目标索引 vs 翻页次数），
+ * 优先消费且强制瞬切，避免与连翻净位移相加导致跳错页
+ */
+let pendingJump: number | null = null
+/** 进行中的队列消费（串行，杜绝导航重叠）；重入复用同一 Promise */
+let drainPromise: Promise<void> | null = null
+/** 权威页索引：由队列推演，每次导航后以 relocated 校正 */
+let navIndex: number | null = null
+/** 换书 / 尺寸变化 / 卸载时递增，旧流程在检查点退出 */
+let openSeq = 0
+/** 连续翻页判定：连翻瞬切、停手后恢复动画 */
+const policy = new TurnPolicy()
+// 连翻补播会话：记录连翻序列起点与首帧快照，停手后补播唯一一次卷曲（与滑块松手补播同构）。
+// 首帧快照同时充当「补播遮罩」：连翻期把阅读区冻结在起点画面，避免先闪目标页再播旧页卷曲
+let burstStartIndex: number | null = null
+let burstStartCfi: string | null = null
+let burstFrom: HTMLCanvasElement | null = null
+/** 本会话遮罩是否已上屏；false = 截图失败/超时/减弱动态 → 补播闸门拒绝 */
+let burstCovered = false
+let burstSettleTimer: ReturnType<typeof setTimeout> | null = null
+
+// 外部定位变化（切版式/方向/字号/缩放重分页等）时同步权威页索引；
+// 队列消费期间（drainPromise 非空）由 jumpTo/animatedTurn 自行校正，避免竞态覆盖推演值
+watch(
+  () => store.current?.index,
+  (idx) => {
+    if (idx != null && drainPromise === null) navIndex = idx
+  }
+)
+
+/** 双 rAF 复用 turnCover.doubleRaf（卷曲首帧画出后揭罩，避免露出遮罩下的新页） */
+
+/**
+ * 等一次 relocated 事件（store.current 已刷新后 resolve）；超时兜底不阻断。
+ * epubjs 的 next()/prev()/display() Promise 在 reportLocation 的 rAF 回调（emit relocated）
+ * 之前就 resolve，await 导航返回时 store.current 仍是旧值，直接做 CFI 比对会把正常翻页
+ * 误判为「无位移」而静默跳过动画——位移判定前必须先等此事件
+ */
+function waitNextRelocated(timeoutMs = 500): Promise<void> {
+  const r = store.getRendition()
+  if (!r) return Promise.resolve()
+  return new Promise((resolve) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const finish = () => {
+      if (settled) return
+      settled = true
+      r.off('relocated', finish)
+      if (timer) clearTimeout(timer)
+      resolve()
+    }
+    timer = setTimeout(finish, timeoutMs)
+    r.on('relocated', finish)
+  })
+}
+
+/** 单次动画的冻结帧上屏：遮罩几何 / 层级 / 幂等揭除统一由 turnCover 管理 */
+function attachFreeze(container: HTMLElement, area: HTMLElement, from: HTMLCanvasElement) {
+  attachTurnCover({ container, target: area, canvas: from, owner: 'turn' })
+}
+
+/** 取消进行中的卷曲并揭除单次动画的冻结帧（作废流程后的统一清理）；绝不揭连翻遮罩 */
+function discardTurn() {
+  cancelTurnCurl() // 底层页面已是动画终点；内部同步兑现 done，唤醒等待中的队列
+  removeTurnCover('turn')
+}
+
+/** 夹取到有效页范围；总页数未知（locations 未就绪）时只保证非负，边界交给 epub.js */
+function clampPageIndex(index: number): number {
+  const total = totalPages.value
+  return total > 0 ? Math.min(Math.max(index, 0), total - 1) : Math.max(index, 0)
+}
+
+/** 翻页入口：只记账，由队列串行消费（连翻净位移合并） */
+function requestTurn(dir: 'forward' | 'back'): void {
+  if (!store.ready) return
+  // 纵向：无卷曲、无冻结帧，图片型滚一行、文字型翻一屏（连续流按视口高滚动）
+  const delta = dir === 'forward' ? 1 : -1
+  if (isVerticalImage.value) {
+    verticalRef.value?.step(delta)
+    return
+  }
+  if (isVerticalText.value) {
+    void (delta > 0 ? store.next() : store.prev())
+    return
+  }
+  pendingDelta += delta
+  // 新输入推迟补播：停手计时从最后一次输入重新开始（会话保留，继续累计）
+  if (burstSettleTimer) clearTimeout(burstSettleTimer)
+  // 卷曲在播：立即揭除（底层已是动画终点），让队列尽快消费本次输入
+  if (isTurnCurlActive()) discardTurn()
+  void drainTurns()
+}
+
+/** 显式跳转（滑块节流跳页 / Home / End）：并入队列串行执行且强制瞬切；返回「队列已空闲」 */
+function requestJump(index: number): Promise<void> {
+  if (!store.ready) return Promise.resolve()
+  // 纵向：滚到目标位置即可，不进入动画队列（无快照 / 无卷曲）
+  if (isVerticalImage.value) {
+    verticalRef.value?.scrollToPage(store.alignToSpread(clampPageIndex(index)))
+    return Promise.resolve()
+  }
+  if (isVerticalText.value) {
+    return store.goTo(clampPageIndex(index)).then(() => {
+      navIndex = store.current?.index ?? navIndex
+    })
+  }
+  // 显式跳转不补播：滑块有独立会话，Home / End 直接到位
+  clearBurstSession()
+  const from = navIndex ?? store.current?.index ?? 0
+  // 目标先夹取再对齐组首：双页模式下组内第二页也落到组首，避免 display 后配对错位
+  const target = store.alignToSpread(clampPageIndex(index))
+  // 显式跳转优先于连翻：清空未消费的翻页次数，避免两个量纲叠加跳错
+  pendingDelta = 0
+  pendingJump = target !== store.alignToSpread(from) ? target : null
+  // 跳转即刻生效：揭除在播卷曲（底层已是动画终点），不等 450ms 播完
+  if (isTurnCurlActive()) discardTurn()
+  return drainTurns()
+}
+
+/** 串行消费队列：重入复用同一 Promise，调用方可安全 await「队列空闲」 */
+function drainTurns(): Promise<void> {
+  if (!drainPromise) {
+    const token = openSeq
+    drainPromise = doDrainTurns(token).finally(() => {
+      drainPromise = null
+      // 换书/尺寸抖动期间的新输入兜底，绝不丢步
+      if (pendingJump !== null || pendingDelta !== 0) void drainTurns()
+    })
+  }
+  return drainPromise
+}
+
+async function doDrainTurns(token: number): Promise<void> {
+  while (token === openSeq && (pendingJump !== null || pendingDelta !== 0)) {
+    // 显式跳转优先：滑块 / Home / End 直接到位，瞬切且不参与连翻判定
+    if (pendingJump !== null) {
+      const target = pendingJump
+      pendingJump = null
+      const from = navIndex ?? store.current?.index ?? 0
+      const effective = target - from
+      navIndex = target
+      if (effective === 0) continue // 已在目标组：不导航、不动画
+      try {
+        await jumpToIndex(target, token)
+      } catch (e) {
+        if (token === openSeq) navIndex = store.current?.index ?? navIndex
+        console.error('[epub] 跳页失败', e)
+      }
+      continue
+    }
+
+    const delta = pendingDelta
+    pendingDelta = 0
+    const from = navIndex ?? store.current?.index ?? 0
+    // 图片型双页按跨页组推演，其余按页推演（store 内部夹取到有效范围）
+    const target = store.turnTarget(from, delta)
+    const effective = target - from
+    navIndex = target
+    if (effective === 0) {
+      // 首/尾无位移也须重置停手计时：requestTurn 已清掉计时器，漏掉会让遮罩永久停留
+      if (burstStartIndex != null) scheduleBurstSettle(token)
+      continue
+    }
+    pushNavDiag(`[spread] turn from=${from} delta=${delta} target=${target}`)
+
+    const decision = policy.decide({
+      now: performance.now(),
+      isPageTurn: true,
+      // 动画判定用翻页次数：双页一次翻页的 section 位移是 2，
+      // 沿用 effective 会被误判为连翻、单次翻页永远瞬切
+      indexDelta: delta,
+      animating: isTurnCurlActive(),
+      reducedMotion,
+      dragging: sliderDragging,
+    })
+    if (decision.mode === 'animate' && Math.abs(delta) === 1) {
+      // 恢复正常单次翻页：上一段连翻序列已结束，残留会话不得跨段生效
+      clearBurstSession()
+      try {
+        await animatedTurn(delta, token)
+      } catch (e) {
+        // 单轮动画/导航异常不拖垮队列：清理覆盖层并以引擎实际落点校正后继续消费
+        discardTurn()
+        if (token === openSeq) navIndex = store.current?.index ?? navIndex
+        console.error('[epub] 动画翻页失败', e)
+      }
+    } else {
+      discardTurn()
+      // 非连翻瞬切（减弱动态 / 拖动）：上一段连翻序列已结束，遮罩不得跨段残留
+      if (!decision.burst) clearBurstSession()
+      // 连翻首帧：先截起点画面并上屏遮罩，再导航——顺序反了就会先露出目标页
+      if (decision.burst) {
+        const covered = await coverBurstStart(from, token)
+        if (!covered) clearBurstSession() // 无遮罩不补播，退化为纯瞬切
+      }
+      try {
+        await jumpTo(target, delta, token)
+      } catch (e) {
+        if (token === openSeq) navIndex = store.current?.index ?? navIndex
+        console.error('[epub] 跳页失败', e)
+      }
+      // 每轮连翻瞬切后重置停手计时；到期且队列空闲才补播唯一一次卷曲
+      if (decision.burst) scheduleBurstSettle(token)
+    }
+  }
+}
+
+/**
+ * 连翻会话首帧：切断点画面并**先上屏遮罩**，再由调用方导航。
+ * 必须「先遮后导」：不等待截图就导航，目标页会先露出，停手补播就成了「先闪目标页再播旧页卷曲」。
+ * 等待期屏幕本来就是这张画面，遮罩与之相同，用户不可感。
+ * @returns 是否有遮罩在屏；false = 截图失败 / 超时 / 减弱动态 / 会话已作废 → 调用方须放弃补播
+ */
+async function coverBurstStart(startIndex: number, token: number): Promise<boolean> {
+  if (burstStartIndex != null) return burstCovered // 会话已建立：沿用已有遮罩
+  const area = epubAreaEl.value
+  const root = rootEl.value
+  if (!area || !root || reducedMotion) return false
+  burstStartIndex = startIndex
+  burstStartCfi = store.current?.cfi ?? null
+  const rect = area.getBoundingClientRect()
+  const shot = captureRegionToCanvas({
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+  }).catch(() => null)
+  // 超时即放弃遮罩（宁可这一次不播动画，也不让画面先闪目标页）
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), BURST_COVER_TIMEOUT_MS)
+  })
+  const from = await Promise.race([shot, timeout])
+  if (timer) clearTimeout(timer)
+  if (!from || token !== openSeq) {
+    pushNavDiag(`[curl] burst cover fail ${from ? 'stale' : 'shot'}`)
+    return false
+  }
+  attachTurnCover({ container: root, target: area, canvas: from, owner: 'burst' })
+  burstFrom = from
+  burstCovered = true
+  return true
+}
+
+/** 停手计时：每次连翻瞬切后重置；到期且队列空闲才补播（新输入会再次重置） */
+function scheduleBurstSettle(token: number): void {
+  if (burstSettleTimer) clearTimeout(burstSettleTimer)
+  burstSettleTimer = setTimeout(() => {
+    burstSettleTimer = null
+    if (token !== openSeq || burstStartIndex == null) {
+      clearBurstSession()
+      return
+    }
+    // 仍在连翻 / 拖动 / 跳转排队：本次不补，等最后一轮消费重新计时
+    if (
+      pendingJump !== null ||
+      pendingDelta !== 0 ||
+      drainPromise !== null ||
+      isTurnCurlActive() ||
+      sliderDragging
+    )
+      return
+    void finishBurstCurl()
+  }, BURST_SETTLE_MS)
+}
+
+/** 停手补播：用连翻首帧卷到最终页（不导航；页面已在瞬切阶段到位） */
+async function finishBurstCurl(): Promise<void> {
+  // 先读走会话快照并清字段：遮罩要留到卷曲首帧画出后才揭，不能走带揭罩的会话清理
+  const startIndex = burstStartIndex
+  const startCfi = burstStartCfi
+  const from = burstFrom
+  const covered = burstCovered
+  const token = openSeq
+  burstStartIndex = null
+  burstStartCfi = null
+  burstFrom = null
+  burstCovered = false
+  if (startIndex == null || !from) return
+  const area = epubAreaEl.value
+  const root = rootEl.value
+  const finalIndex = navIndex ?? store.current?.index ?? 0
+  if (
+    !area ||
+    !root ||
+    !store.current ||
+    !canReplayBurst({
+      tokenValid: token === openSeq,
+      reducedMotion,
+      hasSnapshot: true,
+      covered,
+      startIndex,
+      finalIndex,
+      startCfi,
+      finalCfi: store.current.cfi,
+      queueBusy: drainPromise !== null || pendingJump !== null,
+      pendingDelta,
+      curlActive: isTurnCurlActive(),
+      dragging: sliderDragging,
+    })
+  ) {
+    // 拒绝补播：立即揭罩（遮罩内容即当前页，揭除无视觉跳变）
+    removeTurnCover('burst', from)
+    pushNavDiag(`[curl] burst skip covered=${covered}`)
+    return
+  }
+  const dir: 'forward' | 'back' = finalIndex > startIndex ? 'forward' : 'back'
+  const fromRight = (dir === 'forward') === (store.direction === 'ltr')
+  pushNavDiag(`[curl] burst play ${dir} from=${startIndex} to=${finalIndex}`)
+  // 补播卷曲归单例管理：期间的新输入会揭除它并让队列继续消费
+  const handle = playTurnCurl({ container: root, target: area, from, fromRight, zIndex: 1 })
+  // 卷曲首帧已画出起点全幅 → 双 rAF 后揭罩（无缝）；带画布身份校验，绝不揭后续新会话的遮罩
+  void doubleRaf().then(() => removeTurnCover('burst', from))
+  await handle.done
+}
+
+/** 清空连翻补播会话（换书 / 尺寸变化 / 滑块接管 / 卸载）：会话结束必揭罩，否则画面永久冻结 */
+function clearBurstSession(): void {
+  if (burstSettleTimer) {
+    clearTimeout(burstSettleTimer)
+    burstSettleTimer = null
+  }
+  burstStartIndex = null
+  burstStartCfi = null
+  burstFrom = null
+  burstCovered = false
+  removeTurnCover('burst')
+}
+
+/** 净位移一次到位：图片型走组表推演，文字型 locations 就绪时 goTo；落点以 relocated 为准 */
+async function jumpTo(target: number, delta: number, token: number): Promise<void> {
+  // relocated 监听须先于导航挂上：导航 Promise 早于 relocated 事件 resolve（详见 waitNextRelocated）
+  const relocated = waitNextRelocated()
+  if (store.layout === 'pre-paginated') {
+    await store.turnTo(target, delta)
+  } else if (store.locationsReady && totalPages.value > 0) {
+    await store.goTo(target)
+  } else {
+    for (let i = 0; i < Math.abs(delta); i++) {
+      await (delta > 0 ? store.next() : store.prev())
+    }
+  }
+  await relocated
+  // 以引擎实际落点校正推演值（文字型 location 边界）；换书后旧流程不写新书的索引
+  if (token === openSeq) navIndex = store.current?.index ?? navIndex
+}
+
+/** 显式跳转一次到位：直接 goTo 目标组首，不播动画；落点以 relocated 为准 */
+async function jumpToIndex(target: number, token: number): Promise<void> {
+  const relocated = waitNextRelocated()
+  if (store.layout === 'pre-paginated' || (store.locationsReady && totalPages.value > 0)) {
+    await store.goTo(target)
+  } else {
+    // 文字型 locations 未就绪时无法按下标定位，按索引差逐次翻页（与旧行为一致）
+    const from = navIndex ?? store.current?.index ?? target
+    const delta = target - from
+    for (let i = 0; i < Math.abs(delta); i++) {
+      await (delta > 0 ? store.next() : store.prev())
+    }
+  }
+  await relocated
+  if (token === openSeq) navIndex = store.current?.index ?? navIndex
+}
+
+/** 单页动画翻页：截图 → 冻结帧 → 导航 → 等 relocated/图片 → 卷曲；队列有新输入即降级瞬切 */
+async function animatedTurn(delta: number, token: number): Promise<void> {
+  const dir: 'forward' | 'back' = delta > 0 ? 'forward' : 'back'
+  const area = epubAreaEl.value
+  const root = rootEl.value
+  const target = navIndex ?? 0
+  // 容器缺失 / 减弱动态 / 截图前已有新输入：不截图不占主线程，直接瞬切
+  if (!area || !root || reducedMotion || pendingDelta !== 0) {
+    discardTurn()
+    await jumpTo(target, delta, token)
+    return
+  }
+
+  const t0 = performance.now() // 分段耗时埋点：cap（截图）/ nav（epubjs 重建）/ img（等图）三段
+  // 大面积视口（全屏/高 DPI）截图往返成本显著上升：按面积放宽播前预算，
+  // 否则每次翻页都会在播前检查处被整体耗时静默跳过（连翻仍由 pendingDelta 兜底瞬切）
+  const dpr = window.devicePixelRatio || 1
+  const viewportPixels = window.innerWidth * window.innerHeight * dpr * dpr
+  const budget = pickEpubAnimBudget(viewportPixels)
+  let from: HTMLCanvasElement | null = null
+  try {
+    // 1. 截图不隐藏控制栏（与 PDF 一致）：覆盖层 z1 低于工具栏 z2，
+    //    快照里的工具栏像素始终被真实工具栏盖住；工具栏全程可见，也省去两帧等待
+    if (token !== openSeq) return
+    if (pendingDelta !== 0) {
+      // 进入本函数后来了新输入：放弃动画，队列接管（此时尚未截图，代价最小）
+      discardTurn()
+      await jumpTo(target, delta, token)
+      return
+    }
+    // 截图区域取 .epub-area 当前 bbox；重试时重新取，避免尺寸变化后沿用旧矩形
+    const shot = () => {
+      const rect = area.getBoundingClientRect()
+      return captureRegionToCanvas({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      })
+    }
+    try {
+      from = await shot()
+    } catch {
+      // 全屏 capturePage 偶发空图/失败：立即重试一次，仍失败才降级为无动画瞬切
+      pushNavDiag('[curl] capture fail → 重试一次')
+      try {
+        from = await shot()
+      } catch {
+        from = null
+        pushNavDiag('[curl] capture fail → 无动画')
+      }
+    }
+    const tCap = performance.now()
+    if (token !== openSeq) return
+    if (pendingDelta !== 0) {
+      // 截图期间来了新输入：此时再上屏冻结帧会拍到旧像素，交给队列瞬切
+      discardTurn()
+      await jumpTo(target, delta, token)
+      return
+    }
+
+    // 2. 冻结帧先上屏（实时画面仍是旧页，视觉无缝），再驱动 epub.js 重建视图
+    const prevCfi = store.current?.cfi
+    if (from) attachFreeze(root, area, from)
+    const relocated = waitNextRelocated()
+    if (store.layout === 'pre-paginated') {
+      // 双页单步交给直通 next/prev（配对由 epubjs 负责）；单页走 goTo
+      await store.turnTo(target, delta)
+    } else {
+      await (delta > 0 ? store.next() : store.prev())
+    }
+    // 图片等待与 relocated 通报并行（都只依赖导航完成）；限时 250ms：
+    // 卷曲透明区从自由边渐进揭示（缓动下前段揭示面小），图片解码与动画前段重叠，
+    // 超时即开动画不阻塞——仅慢盘/超大图可能动画中段短暂微露白
+    const rendition = store.getRendition()
+    // 视图已被销毁时 getContents 可能抛错：吞掉，等图失败不阻断翻页
+    const settled = rendition
+      ? waitViewsSettled(rendition, 250).catch(() => undefined)
+      : Promise.resolve()
+    await relocated
+    const tNav = performance.now()
+    if (token !== openSeq) return // 已被换书/尺寸变化作废（冻结帧已由 discardTurn 揭除）
+    navIndex = store.current?.index ?? navIndex
+
+    // 3. 未发生位移（首/尾页）：不播动画，仅揭除冻结帧。
+    //    用 CFI 而非 index 判定：文字型书的 index 是 location 块索引，一屏翻页可能仍在同一块内
+    if (!from || !store.current || store.current.cfi === prevCfi) {
+      pushNavDiag(`[curl] no-move skip from=${from ? 'ok' : 'null'} d=${Math.round(tNav - t0)}ms`)
+      removeTurnCover('turn', from ?? undefined)
+      return
+    }
+
+    // 4. 等新视图稳定（多数情况在等 relocated 期间已就绪）后播卷曲；省略 to：透出实时新视图
+    await settled
+    if (token !== openSeq) return
+    // 播前再查：期间的新输入 / 正在拖动 / 超预算 → 不播迟到动画（页面已上屏，直接揭除）
+    const elapsed = performance.now() - t0
+    if (pendingDelta !== 0 || sliderDragging || elapsed > budget) {
+      pushNavDiag(
+        `[curl] skip play pending=${pendingDelta} drag=${sliderDragging} ` +
+          `d=${Math.round(elapsed)}ms budget=${budget}`
+      )
+      discardTurn()
+      return
+    }
+    const fromRight = (dir === 'forward') === (store.direction === 'ltr') // 同 PDF
+    const tPlay = performance.now()
+    pushNavDiag(
+      `[curl] play ${dir} fromRight=${fromRight} full=${isFullscreen.value ? 1 : 0} ` +
+        `shot=${from.width}x${from.height} budget=${budget} d=${Math.round(tPlay - t0)}ms ` +
+        `cap=${Math.round(tCap - t0)} nav=${Math.round(tNav - tCap)} img=${Math.round(tPlay - tNav)}`
+    )
+    const handle = playTurnCurl({
+      container: root,
+      target: area,
+      from,
+      fromRight,
+      zIndex: 1, // 低于控制栏 z2：卷曲期间工具栏保持叠在动画之上，不再遮挡
+      onDone: () => removeTurnCover('turn', from ?? undefined),
+    })
+    // 卷曲首帧已画出旧页全幅 → 双 rAF 后揭除冻结帧（无缝）；仅移除本次自己贴上的那份
+    void doubleRaf().then(() => removeTurnCover('turn', from ?? undefined))
+    await handle.done // 等到卷曲结束或被新输入揭除，队列才继续消费下一轮
+  } finally {
+    // throw / 提前返回兜底：只揭除本轮贴上的冻结帧，避免误删后续流程的快照
+    removeTurnCover('turn', from ?? undefined)
+  }
+}
+
+/** 字号档位（与 PDF 顶栏缩放 select 同位置；Ctrl+滚轮可调出档位外的自定义值） */
+const FONT_SIZE_OPTIONS = [80, 90, 100, 110, 120, 130, 140, 160, 180, 200]
+/** 图片型书缩放档位（100 = 整页适合视口） */
+const ZOOM_OPTIONS = [50, 75, 100, 125, 150, 200]
+
+/** 图片型书（pre-paginated）顶栏下拉框为缩放，文字型书为字号 */
+const isImageLayout = computed(() => store.layout === 'pre-paginated')
+/** 图片型横向（左右翻页）：epub.js 用 iframe 渲染，页盒与截图需单独换算 */
+const isImageHorizontal = computed(() => isImageLayout.value && !isVertical.value)
+
+// —— AI 框选翻译（图片型横向）——
+// 没有 canvas：页盒取 iframe 内 img/svg 的矩形（fitPrePaginatedContents 把图片按 fit 尺寸
+// 居中在 iframe 里，直接用 iframe 矩形会让归一化坐标带上留白误差），位图走区域截图。
+interface AiPageBox {
+  /** 真实页码：spine 索引 + 1，与图片型纵向共用同一条译文记录 */
+  page: number
+  /** 相对 .ai-stage 的定位（px） */
+  left: number
+  top: number
+  width: number
+  height: number
+  /** 窗口坐标：区域截图用 */
+  x: number
+  y: number
+}
+
+const aiStageEl = ref<HTMLElement | null>(null)
+const aiPageBoxes = ref<AiPageBox[]>([])
+/** 门控可见性：翻页 / 卷曲动画期间不渲染译文框（与横向 PDF 同口径） */
+const aiOverlayVisible = ref(false)
+
+/** 页盒是否等价（0.5px 容差）：轮询高频调用，避免无谓重渲染 */
+function sameAiPageBoxes(a: AiPageBox[], b: AiPageBox[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((box, i) => {
+    const o = b[i]
+    return (
+      box.page === o.page &&
+      Math.abs(box.left - o.left) < 0.5 &&
+      Math.abs(box.top - o.top) < 0.5 &&
+      Math.abs(box.width - o.width) < 0.5 &&
+      Math.abs(box.height - o.height) < 0.5
+    )
+  })
+}
+
+/** 从 rendition 的实时 iframe 读出每页图片盒（翻页 / 缩放 / 单双页切换后矩形全变） */
+function refreshAiPageBoxes(): void {
+  aiOverlayVisible.value = !switching.value && !isTurnCurlActive()
+  const stage = aiStageEl.value
+  const rendition = store.getRendition()
+  if (!stage || !rendition) {
+    if (aiPageBoxes.value.length) aiPageBoxes.value = []
+    return
+  }
+  const stageRect = stage.getBoundingClientRect()
+  let contents: Contents[] = []
+  try {
+    // 类型声明写成单个 Contents，运行时为 Contents[]（同 bindRenditionEvents）
+    contents = rendition.getContents() as unknown as Contents[]
+  } catch {
+    contents = []
+  }
+  const next: AiPageBox[] = []
+  for (const c of contents) {
+    const frame = c?.window?.frameElement as HTMLElement | null | undefined
+    const el = c?.document?.querySelector('img, svg') as HTMLElement | null
+    if (!frame || !el) continue
+    const frameRect = frame.getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
+    if (!(rect.width > 0) || !(rect.height > 0)) continue
+    // iframe 内的矩形是自身坐标系：加 iframe 偏移换成窗口坐标
+    const x = frameRect.left + rect.left
+    const y = frameRect.top + rect.top
+    next.push({
+      page: (c.sectionIndex ?? 0) + 1,
+      left: x - stageRect.left,
+      top: y - stageRect.top,
+      width: rect.width,
+      height: rect.height,
+      x,
+      y,
+    })
+  }
+  if (!sameAiPageBoxes(aiPageBoxes.value, next)) aiPageBoxes.value = next
+  // 翻走的那页不会再显示临时框：按挂载中的页裁剪（只在页集合变化时做，避免轮询里空转）
+  const pagesKey = next.map((b) => b.page).join(',')
+  if (pagesKey !== lastPrunedKey) {
+    lastPrunedKey = pagesKey
+    ai.prunePending(next.map((b) => b.page))
+  }
+}
+
+/** 区域截图即该页位图：iframe 内容取不到 DOM 像素，只能由主进程合成 */
+async function captureAiPage(page: number): Promise<HTMLCanvasElement | null> {
+  const box = aiPageBoxes.value.find((b) => b.page === page)
+  if (!box) return null
+  try {
+    return await captureRegionToCanvas({ x: box.x, y: box.y, width: box.width, height: box.height })
+  } catch {
+    return null // 截图失败按「无位图」处理：放弃本次框选，不抛错
+  }
+}
+
+/** 页盒轮询：epub.js 自行重建 iframe，没有可订阅的几何变更事件 */
+const AI_BOX_POLL_MS = 180
+let aiBoxTimer: ReturnType<typeof setInterval> | null = null
+/** 上次裁剪 pending 用的页集合：同一窗口内不重复写 store */
+let lastPrunedKey = ''
+
+function startAiBoxLoop(): void {
+  if (aiBoxTimer) return
+  refreshAiPageBoxes()
+  aiBoxTimer = setInterval(refreshAiPageBoxes, AI_BOX_POLL_MS)
+}
+
+function stopAiBoxLoop(): void {
+  if (aiBoxTimer) clearInterval(aiBoxTimer)
+  aiBoxTimer = null
+  lastPrunedKey = ''
+  if (aiPageBoxes.value.length) aiPageBoxes.value = []
+}
+
+watch(
+  isImageHorizontal,
+  (on) => {
+    if (on) startAiBoxLoop()
+    else stopAiBoxLoop()
+  },
+  { immediate: true }
+)
+
+// 退出图片型（切回文字型书）：覆盖层随视图卸载，退出选词并清掉临时框
+watch(isImageLayout, (on) => {
+  if (on) return
+  ai.endSelect()
+  ai.prunePending([])
+})
+
+/** 顶栏下拉当前值：图片型书取缩放，文字型书取字号（百分比整数） */
+const zoomValue = computed(() => (isImageLayout.value ? store.zoom : store.fontSize))
+
+/** 顶栏下拉选项：预置档位 + Ctrl+滚轮调出的档位外自定义值 */
+const zoomOptions = computed<SelectOption<number>[]>(() => {
+  const presets = isImageLayout.value ? ZOOM_OPTIONS : FONT_SIZE_OPTIONS
+  const options: SelectOption<number>[] = presets.map((value) => ({ value, label: `${value}%` }))
+  if (!presets.includes(zoomValue.value)) {
+    options.push({ value: zoomValue.value, label: t('reader.customZoom', { percent: zoomValue.value }) })
+  }
+  return options
+})
+
+function onZoomSelect(value: number) {
+  if (store.layout === 'pre-paginated') store.setZoom(value)
+  else store.setFontSize(value)
+}
+
+// —— 滑块 ——
+// 用本地状态驱动 thumb（拖动即时跟手）；store.current 更新时（翻页/跳页后）再同步回来。
+// 若直接绑定 store.current：拖动中任何重渲染（如底栏自动隐藏）都会把 thumb 写回旧值，表现成“拖不动”。
+const sliderIndex = ref(0)
+let sliderDragging = false
+/** 拖动会话语境：起始索引/CFI + 拖动开始画面快照 Promise（松手后补播唯一一次卷曲） */
+let slideStartIndex: number | null = null
+let slideStartCfi: string | null = null
+let slideFromPromise: Promise<HTMLCanvasElement | null> | null = null
+
+watch(
+  () => store.current?.index,
+  (idx) => {
+    if (idx != null && !sliderDragging) sliderIndex.value = idx
+  }
+)
+
+watch(
+  () => store.bookId,
+  () => {
+    sliderIndex.value = 0
+    sliderDragging = false
+    slideStartIndex = null
+    slideStartCfi = null
+    slideFromPromise = null
+  }
+)
+
+let slideTimer: ReturnType<typeof setTimeout> | null = null
+function onSlideInput(e: Event) {
+  const idx = Number((e.target as HTMLInputElement).value)
+  if (isVertical.value) {
+    // 纵向：拖动即滚到目标行顶部，不截快照、不排队、不补播
+    sliderIndex.value = idx
+    if (slideTimer) clearTimeout(slideTimer)
+    slideTimer = setTimeout(() => {
+      void requestJump(idx)
+    }, 200)
+    return
+  }
+  const sessionStart = slideStartIndex == null
+  sliderDragging = true
+  sliderIndex.value = idx
+  // 拖动会话首帧：记录起始索引并异步捕获起始画面（含控制栏；thumb 冻结约 450ms 可接受）
+  if (sessionStart) {
+    // 拖动接管：连翻补播会话作废，松手只补播滑块自己的那一次
+    clearBurstSession()
+    slideStartIndex = navIndex ?? store.current?.index ?? idx
+    slideStartCfi = store.current?.cfi ?? null
+    // 拖动即作废在飞动画，并以当前页为基准重建队列推演（避免继承连翻期间的净位移）
+    discardTurn()
+    pendingDelta = 0
+    pendingJump = null
+    navIndex = store.current?.index ?? slideStartIndex
+    const area = epubAreaEl.value
+    if (area && !reducedMotion) {
+      const rect = area.getBoundingClientRect()
+      slideFromPromise = captureRegionToCanvas({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }).catch(() => null)
+    }
+  }
+  // 拖动过程密集触发 input：节流跳页，队列串行执行且强制瞬切，避免整页重渲染任务积压而“没反应”
+  if (slideTimer) clearTimeout(slideTimer)
+  slideTimer = setTimeout(() => {
+    void requestJump(idx)
+  }, 200)
+}
+
+function onSlideChange(e: Event) {
+  const idx = Number((e.target as HTMLInputElement).value)
+  if (slideTimer) {
+    clearTimeout(slideTimer)
+    slideTimer = null
+  }
+  if (isVertical.value) {
+    // 纵向松手：直接滚到目标行，无补播
+    void requestJump(idx)
+    sliderIndex.value = idx
+    return
+  }
+  void finishSlideCurl(idx) // 松手立即跳到最终位置，并补播唯一一次卷曲
+  setTimeout(() => {
+    sliderDragging = false
+    sliderIndex.value = store.current?.index ?? idx
+  }, 400)
+}
+
+/** 滑块松手收尾：等队列把最终页上屏后，用拖动起始快照补播唯一一次卷曲（不再自行导航） */
+async function finishSlideCurl(finalIndex: number): Promise<void> {
+  const startIndex = slideStartIndex
+  const startCfi = slideStartCfi
+  const fromPromise = slideFromPromise
+  slideStartIndex = null
+  slideStartCfi = null
+  slideFromPromise = null
+  const token = openSeq
+  // 双页模式落点对齐组首：滑块原始索引可能落在组内第二页
+  const finalTarget = store.alignToSpread(clampPageIndex(finalIndex))
+  await requestJump(finalIndex) // 串行：与在飞导航合并，最终页上屏后才补播
+  if (reducedMotion || !store.ready || startIndex == null || !fromPromise || token !== openSeq) return
+  // 期间又来了新的翻页/跳页或已有卷曲在播：不再补播，避免用旧快照盖住新页面
+  if (
+    drainPromise !== null ||
+    pendingDelta !== 0 ||
+    pendingJump !== null ||
+    navIndex !== finalTarget ||
+    isTurnCurlActive()
+  ) {
+    return
+  }
+  const from = await fromPromise
+  const area = epubAreaEl.value
+  const root = rootEl.value
+  if (!from || !area || !root || !store.current) return
+  // 未发生位移：不播（保留现有 CFI 判重）
+  if (store.current.cfi === startCfi) {
+    pushNavDiag('[curl] slide no-move skip')
+    return
+  }
+  const dir: 'forward' | 'back' = finalTarget > store.alignToSpread(startIndex) ? 'forward' : 'back'
+  const fromRight = (dir === 'forward') === (store.direction === 'ltr') // 同 PDF
+  pushNavDiag(`[curl] slide play ${dir}`)
+  // 补播卷曲归单例管理：期间的新翻页会揭除它并让队列继续消费
+  // zIndex 1 同主翻页：低于控制栏 z2，底栏保持叠在动画之上
+  await playTurnCurl({ container: root, target: area, from, fromRight, zIndex: 1 }).done
+}
+
+let wheelLock = false
+function onWheel(e: WheelEvent) {
+  // 选词中不翻页 / 不缩放：拖框时页面跟着跳会取错区域
+  if (ai.selecting) return
+  if (e.ctrlKey || e.metaKey) {
+    // Ctrl/Cmd+滚轮：图片型书缩放 / 文字型书字号步进（阻止浏览器页缩放）
+    e.preventDefault()
+    const delta = e.deltaY < 0 ? 10 : -10
+    if (store.layout === 'pre-paginated') store.setZoom(store.zoom + delta)
+    else store.setFontSize(store.fontSize + delta)
+    return
+  }
+  // 纵向：滚动交给容器（文字型经 onFrameWheel / onRootWheel 转发），不做翻页
+  if (isVertical.value) return
+  if (wheelLock || Math.abs(e.deltaY) < 20) return
+  wheelLock = true
+  setTimeout(() => (wheelLock = false), 250)
+  requestTurn(e.deltaY > 0 ? 'forward' : 'back')
+}
+
+/** epub.js 的滚动容器（连续流由 manager 创建在 .epub-area 内） */
+function epubScroller(): HTMLElement | null {
+  return epubAreaEl.value?.querySelector<HTMLElement>('.epub-container') ?? null
+}
+
+/** 把滚轮增量转给 epub 容器的 scrollTop：iframe 内与热区覆盖层上都不会原生滚动 */
+function scrollEpubByWheel(e: WheelEvent): void {
+  const container = epubScroller()
+  if (!container) return
+  container.scrollTop += normalizeWheelDelta(e, container.clientHeight)
+}
+
+/** 容器外的滚轮（两侧热区盖住容器）：文字型纵向下手动转发，否则滚轮在热区上无响应 */
+function onRootWheel(e: WheelEvent): void {
+  if (!isVerticalText.value) return
+  const target = e.target
+  if (target instanceof HTMLElement && target.closest('.top-bar, .bottom-bar')) return
+  const container = epubScroller()
+  if (!container || (target instanceof Node && container.contains(target))) return
+  scrollEpubByWheel(e)
+}
+
+function showBarsTemporarily(ms = 3000) {
+  if (barsSuppressedByAi) return
+  barsVisible.value = true
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = null
+  // 下拉展开期间只保持可见、不启动隐藏计时：鼠标在触发器附近移动会反复调用本函数
+  if (barsPinned) return
+  hideTimer = setTimeout(() => (barsVisible.value = false), ms)
+}
+
+/** 下拉展开：锁定顶栏可见 */
+function pinBars() {
+  barsPinned = true
+  showBarsTemporarily()
+}
+
+/** 下拉收起：解除锁定，重新开始自动隐藏 */
+function unpinBars() {
+  barsPinned = false
+  showBarsTemporarily()
+}
+
+function onMouseMove(e: MouseEvent) {
+  const edge = 64
+  if (e.clientY < edge || e.clientY > window.innerHeight - edge) {
+    showBarsTemporarily(1500)
+  }
+}
+
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+function onResize() {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  // 防抖后按新视口重排分页
+  resizeTimer = setTimeout(() => {
+    // 尺寸变化令进行中的翻页编排失效（截图/冻结帧按旧尺寸）：作废队列消费并揭除冻结帧
+    openSeq++
+    pendingDelta = 0
+    pendingJump = null
+    clearBurstSession()
+    discardTurn()
+    navIndex = store.current?.index ?? null
+    if (epubAreaEl.value) {
+      const rect = epubAreaEl.value.getBoundingClientRect()
+      store.resize(rect.width, rect.height)
+    }
+  }, 200)
+}
+
+/** 表单控件（底栏滑块等）聚焦时仍需让给控件的按键；其余快捷键照常生效 */
+const FORM_NAV_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  ' ',
+  'Enter',
+])
+
+function onKeydown(e: KeyboardEvent) {
+  // 去重：iframe window 直挂与 rendition re-emit 可能先后到达同一个事件对象
+  if (handledKeyEvents.has(e)) return
+  handledKeyEvents.add(e)
+  const target = e.target as HTMLElement
+  // 只让位导航键：拖过滑块后焦点留在 input 上时，A / F 等快捷键仍应生效
+  const inField =
+    target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA'
+  if (inField && FORM_NAV_KEYS.has(e.key)) {
+    return
+  }
+  if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+    e.preventDefault()
+    showDiag.value = !showDiag.value
+    return
+  }
+  switch (e.key) {
+    case 'ArrowRight':
+      requestTurn('forward')
+      break
+    case 'ArrowLeft':
+      requestTurn('back')
+      break
+    case 'ArrowDown':
+      requestTurn('forward')
+      break
+    case 'ArrowUp':
+      requestTurn('back')
+      break
+    case ' ':
+      requestTurn(e.shiftKey ? 'back' : 'forward')
+      break
+    case 'PageDown':
+      requestTurn('forward')
+      break
+    case 'PageUp':
+      requestTurn('back')
+      break
+    case 'Home':
+      void requestJump(0)
+      break
+    case 'End':
+      void requestJump(Math.max(0, totalPages.value - 1))
+      break
+    case '=':
+    case '+':
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        if (store.layout === 'pre-paginated') store.setZoom(store.zoom + 10)
+        else store.setFontSize(store.fontSize + 10)
+      }
+      break
+    case '-':
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        if (store.layout === 'pre-paginated') store.setZoom(store.zoom - 10)
+        else store.setFontSize(store.fontSize - 10)
+      }
+      break
+    case 'd':
+    case 'D':
+      // 文字型纵向为单列：双页切换无意义（store 内亦为空操作）
+      if (!isVerticalText.value) store.toggleSpread()
+      break
+    case 'r':
+    case 'R':
+      cycleDirection()
+      break
+    case 'f':
+    case 'F':
+      void toggleFullscreen()
+      break
+    case 'a':
+    case 'A':
+      // 仅图片型书（横向 / 上→下）挂了覆盖层：文字型没有稳定页边界，按了必须给反馈，
+      // 否则与「快捷键失效」无法区分
+      if (!isImageLayout.value) {
+        showAiNotice(t('ai.textUnsupported'))
+        break
+      }
+      if (!aiReady.value) showAiNotice(t('ai.disabledTip'))
+      else toggleAiSelect()
+      break
+    case 'Escape': {
+      // 与 PDF 共用同一优先级：选词 > 全屏 > 返回文库
+      const action = resolveReaderEsc({
+        selecting: ai.selecting,
+        fullscreen: isFullscreen.value,
+        justExitedFullscreen: exitedFullscreenRecently(),
+      })
+      if (action === 'exitAiSelect') ai.endSelect()
+      else if (action === 'exitFullscreen') void exitFullscreen()
+      else goBack()
+      break
+    }
+  }
+}
+</script>
+
+<style scoped>
+.reader-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  outline: none;
+}
+
+.top-bar,
+.bottom-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(28, 28, 30, 0.6);
+  backdrop-filter: blur(20px) saturate(180%);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+
+.top-bar {
+  top: 0;
+  /* 返回按钮水平落点对齐设置页页头：非 mac 左 40px；mac 由全局 .platform-mac .top-bar 覆盖为 84px */
+  padding: 8px 40px;
+}
+
+.bottom-bar {
+  bottom: 0;
+}
+
+.top-bar.visible,
+.bottom-bar.visible {
+  opacity: 1;
+}
+
+/* 淡出态不拦截指针：隐藏后的工具栏不应接住页面上的点击（与 PDF 对齐） */
+.top-bar:not(.visible),
+.bottom-bar:not(.visible) {
+  pointer-events: none;
+}
+
+.book-nav {
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 底部提示胶囊：选词提示 / 未启用提示（高于顶底栏 z2） */
+.ai-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  z-index: 3;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px) saturate(160%);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  pointer-events: none;
+  animation: ai-notice-in 160ms ease-out;
+}
+
+@keyframes ai-notice-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.debug-panel {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 9999;
+  max-width: 640px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #7fdbca;
+  font: 11px/1.5 Consolas, monospace;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.book-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.title {
+  flex: 1;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.icon-btn,
+.controls button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+/* 文字型纵向禁用双页：按钮不可点，提示挂在包裹层上 */
+.controls button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.spread-guard {
+  display: inline-flex;
+}
+
+/* 单本封面按钮：文案随语言变长（英文 / 日文），禁换行避免顶栏被撑高 */
+.controls .cover-single {
+  white-space: nowrap;
+}
+
+.zoom-select,
+.direction-select {
+  /* 深色顶栏变体：透明底 + 半透明白描边，尺寸对齐相邻 .controls button */
+  --select-height: 26px;
+  --select-min-width: 104px;
+  --select-radius: 4px;
+  --select-padding: 0 6px;
+  --select-bg: transparent;
+  --select-color: #fff;
+  --select-border: rgba(255, 255, 255, 0.4);
+  --select-shadow: none;
+  --select-hover-bg: rgba(255, 255, 255, 0.1);
+  --select-hover-border: rgba(255, 255, 255, 0.65);
+  --select-open-bg: rgba(255, 255, 255, 0.1);
+  --select-focus-border: rgba(255, 255, 255, 0.85);
+  --select-focus-ring: rgba(255, 255, 255, 0.18);
+  --select-chevron: rgba(255, 255, 255, 0.7);
+  --select-chevron-strong: #fff;
+}
+
+.page-area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.epub-area {
+  position: absolute;
+  inset: 0;
+}
+
+/* 上→下（文字型）：epub.js 连续流的容器自带纵向滚动，章节间用 padding 留固定间隙。
+   用 padding 而非 margin：IframeView.bounds() 含 padding，连续流 erase() 会按 bounds
+   高度补偿滚动位置，不会产生 16px 漂移 */
+.epub-area.is-vertical :deep(.epub-container > .epub-view + .epub-view) {
+  padding-top: 16px;
+}
+
+.epub-area.is-vertical :deep(.epub-container) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+.epub-area.is-vertical :deep(.epub-container)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.epub-area.is-vertical :deep(.epub-container)::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 4px;
+}
+
+/* 上→下（图片型）：纵向 canvas 视图覆盖在布局占位的 .epub-area 之上；
+   后者不可 display:none，否则切回横向时矩形为 0×0 建不了引擎 */
+.epub-vertical {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* 图片型横向：每页一个绝对定位页盒，坐标口径与自适应缩放后的图片盒一致 */
+.ai-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 选词态接管整块阅读区：拖框不穿透到 iframe / 热区触发翻页 */
+.ai-stage.selecting {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* 页盒本身不吃指针：只有内部 .ai-layer 在选词态接管，常态仍由热区翻页 */
+.ai-stage-page {
+  position: absolute;
+  pointer-events: none;
+}
+
+.state-tip {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  color: #888;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.state-tip button {
+  padding: 6px 16px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: transparent;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.hotzone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 33%;
+  z-index: 1;
+}
+
+.hotzone-left {
+  left: 0;
+}
+
+.hotzone-right {
+  right: 0;
+}
+
+.page-indicator {
+  min-width: 80px;
+}
+
+.nav-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.page-slider {
+  flex: 1;
+}
+</style>

@@ -1,0 +1,292 @@
+<div align="center">
+
+# 📚 IReader
+
+**纯离线的本地漫画阅读器（PDF / EPUB / CBZ / MOBI）**
+
+导入 · 合集 · 沉浸阅读 · 断点续读 —— 你的漫画收藏，只属于你自己的电脑
+
+[中文](./readme.md) · [English](./readme.en.md) · [日本語](./readme.ja.md)
+
+[![Electron](https://img.shields.io/badge/Electron-42-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Vue](https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-F0C929?style=flat-square)](./LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-grey?style=flat-square)
+
+![文库主页](pics/主页.webp)
+
+*文库主页 —— 导入、搜索、排序与合集，一屏尽收*
+
+</div>
+
+---
+
+## ✨ 功能亮点
+
+- 📴 **纯离线** — 除设置页手动「检查更新」与你主动使用的 AI 翻译外零网络请求，书籍、封面、进度与译文全部存于本机；`ireader://` 自定义协议按 id 分发文件，不暴露本地路径
+- 📚 **多格式支持** — 导入 PDF、EPUB、CBZ / ZIP 漫画包与图片型漫画 MOBI 四种格式，共用文库、合集与断点续读；PDF 走 pdf.js canvas 渲染管线，EPUB 走 epub.js 分页排版（图片型漫画书双页并排，文字型书流式分页），CBZ / ZIP 与 MOBI 由主进程按需读取、逐页供给图片并复用 PDF 全套翻页管线；同一套阅读偏好与快捷键
+- 🌐 **三语界面** — 设置 → 通用 → 语言支持跟随系统 / 中文 / English / 日本語；切换即时生效、重启保持，日期、时长、复数与书名排序同步适配当前语言
+- 📖 **沉浸阅读** — 单页 / 双页排版，日漫（右→左）、韩漫（左→右）与条漫（上→下）三种方向：横向两向配 canvas 自绘的仿真纸张卷曲翻页动画，上→下则改为纵向连续滚动、行间固定 16px 间隙、不播翻页动画；纯黑视口贴满屏幕，顶底栏靠近边缘唤出、自动隐藏；适宽等长页支持滚轮连续滚动，贴边即翻页
+- 🪄 **AI 框选翻译** — 阅读页按 `A` 或点顶栏「AI 翻译」，拖出一个框即可把漫画对白译成中文 / 英文 / 日文；玻璃选框原地变白色译文框，字号按模型建议自动贴合气泡，可整框拖动、右下角缩放、折叠成小圆球或删除，译文按书 + 页持久化；接口支持 OpenAI 兼容与 Anthropic 兼容（可存多套模型配置并测试连接），PDF / CBZ / MOBI 与图片型 EPUB（含上→下）可用
+- 🔖 **断点续读** — 每本书独立记录页码、阅读模式、方向与缩放，重新打开即回到上次离开的位置
+- 🗂️ **合集管理** — 按系列收纳漫画，一本书同一时刻只属于一个合集；集内可直接导入，从主页模糊搜索 + 全选添加
+- 📊 **阅读统计** — 总时长、今日阅读、连续天数一览，近 7 / 30 天柱状图与书籍排行；时长自动累计，排行支持今日 / 总计切换
+- ⚡ **流畅渲染** — 离屏 canvas 渲染 + LRU 位图缓存，缓存命中毫秒级上屏；滑块跨页拖动零渲染开销，后台预取前后页组
+
+## 🖼 界面预览
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="pics/阅读界面（带设置）.webp" alt="沉浸阅读器" /><br/>
+      <sub><b>阅读器 · 工具栏</b> —— 顶栏切换双页 / 阅读方向 / 缩放与全屏，底栏滑块即拖即翻</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="pics/阅读界面2（设置隐藏）.webp" alt="沉浸模式" /><br/>
+      <sub><b>沉浸模式</b> —— 工具栏自动隐藏，纯黑视口贴满屏幕，只剩漫画本身</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="pics/合集.webp" alt="合集视图" /><br/>
+      <sub><b>合集视图</b> —— 立体书「继续阅读」侧栏，在集内书单中切换焦点、点击封面即续读</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="pics/设置.webp" alt="设置" /><br/>
+      <sub><b>设置</b> —— 界面语言、阅读偏好与外观，主题支持浅色 / 深色 / 跟随系统</sub>
+    </td>
+  </tr>
+</table>
+
+## 📥 下载安装
+
+前往 [**Releases**](../../releases) 页面下载对应平台的安装包：
+
+| 平台 | 安装包 | 状态 |
+| --- | --- | --- |
+| macOS 12+（Apple Silicon 已验收） | `IReader-<版本>-mac.dmg` | ✅ 可用 |
+| Windows 10+（已验收） | `IReader-<版本>-win.exe` | ✅ 可用 |
+
+> **macOS 签名说明**：当前构建使用 ad-hoc 签名（`identity: "-"`，无需 Apple 开发者证书）。从浏览器下载安装后首次打开如提示「无法检查它是否包含恶意软件」，前往**系统设置 → 隐私与安全性**，点击「仍要打开」放行一次即可。
+>
+> **Windows 未签名说明**：安装包未签名，首次运行若被 SmartScreen 拦截，点击「更多信息」→「仍要运行」即可放行。
+
+**应用内检查更新**：已安装的用户可在 设置 → 关于 点击「检查更新」。Windows 支持增量更新（只下载变化部分，完成后一键重启静默安装）；macOS 因无开发者证书签名不支持应用内安装，检查到新版本后会跳转浏览器前往 Release 页下载。
+
+## ⌨️ 快捷键
+
+| 操作 | 按键 |
+| --- | --- |
+| 下一页 / 上一页 | `→` / `←`（固定语义，不随 RTL 翻转）、`↓` / `↑` |
+| 下一页 / 上一页 | `空格` / `Shift+空格`、`PgDn` / `PgUp` |
+| 首 / 末页组 | `Home` / `End` |
+| 页组跳转 | 底栏滑块拖动（过程跟随，松手播放一次翻页动画） |
+| 页面滚动 / 边缘翻页 | `滚轮` 先滚动页面内容，滚至顶部 / 底部后继续滚动即翻页（适宽等纵向超出一屏时） |
+| 横向平移 | `Shift+滚轮`（下滚向右、上滚向左；到最左 / 最右后转为上下滚动） |
+| 单页 / 双页 | `D` |
+| 切换阅读方向 | `R`（左→右 → 右→左 → 上→下 循环） |
+| 放大 / 缩小 | `Cmd/Ctrl+=` / `Cmd/Ctrl+-`，`Cmd/Ctrl+滚轮` |
+| 全屏 | `F` 或工具栏按钮；`Esc` 退出全屏 / 返回文库 |
+| AI 翻译选词 | `A`（再按一次或 `Esc` 退出；未启用 / 当前书不支持时底部提示） |
+
+<details>
+<summary><b>📚 完整功能清单</b></summary>
+
+#### 文库（主页）
+
+- **导入**：多选 PDF / EPUB / CBZ / ZIP / MOBI 文件，或选择文件夹递归扫描（跳过隐藏目录与符号链接）；按规范化绝对路径去重，格式由扩展名自动识别；CBZ / ZIP 漫画包以内部图片文件名自然排序为阅读顺序，MOBI 以正文 `<img recindex>` 引用顺序为阅读顺序（无法解析时回退记录顺序）
+- **封面**：导入后由封面队列逐本渲染第 1 页落盘（480px JPEG），渐进上屏；失败显示占位图
+- **卡片**：封面、书名、阅读进度（百分比 + 进度条）、最近阅读时间
+- **排序**：最近阅读（默认）/ 添加时间 / 书名，偏好持久化
+- **卡片操作**：打开、移入合集、重命名、移除（可选同时删除文件，二次确认）、缺失文件重新定位
+
+#### 合集
+
+- 主页创建合集，合集卡片与书本卡片等高，右侧带多页纸缘效果；封面取集内书名升序第一本
+- 点击合集进入合集视图：显示成员书（书名升序）、解散合集（成员移回未分组，二次确认）
+- 合集内可直接**导入漫画 / 导入文件夹**（新导入自动归属该合集）
+- **从主页添加**：多选对话框把未分组的书移入合集，支持书名模糊搜索（空格分隔多词、大小写不敏感）与**全选**
+- **继续阅读侧栏**：合集视图右侧栏默认展示集内最近阅读的一本（大封面 + 书页厚度的立体书籍样式），配上一本/下一本按钮在集内书单中切换焦点，点击封面直接续读
+
+#### 阅读器
+
+- **页组**：单页 `[1][2][3]…`；双页默认封面单独成页 `[1][2,3][4,5]…`（可在设置关闭）
+- **方向**：RTL（日漫）组内第 1 页在右；LTR（韩漫）组内第 1 页在左；点击热区随方向镜像（左右键盘键固定语义，见快捷键）
+- **纵向连续滚动**（上→下）：页面沿纵向连续排列，行间固定 16px 间隙（双页行行内 0 间隙、两页垂直居中），不播翻页动画；窗口化只挂载并渲染视口附近的页，滚轮 / 触控板连续滚动，键盘、热区、底栏滑块与前后页按钮改为瞬时滚动定位；停止滚动约 1s 落盘进度，重开回到同一行；双页行内页序沿用切入纵向前的横向方向（默认左→右）；EPUB 文字型书走 epub.js 连续流、强制单列，双页按钮置灰并提示
+- **缩放**：适宽 / 适高（默认，页面贴满视口）/ 原始 100% / 自定义 25%–400%（`Ctrl/Cmd+滚轮` 或 `=`/`-` 步进 10%）；超出视口可拖拽平移
+- **翻页动画**：canvas 自绘仿真纸张卷曲（450ms，折缝阴影与纸边高光），连翻自动取消上一层；遵循 `prefers-reduced-motion`
+- **滚轮阅读**：适宽 / 自定义缩放等页面纵向超出视口时，滚轮先滚动内容，滚至顶部 / 底部后继续滚动约 80px 才翻页，翻页后前进对齐页首、后退对齐页底；`Shift+滚轮` 横向平移（下滚向右、上滚向左），到达最左 / 最右后转为上下滚动，纵向到边同样可翻页；横向无溢出时等同普通滚轮
+- **渲染管线**：离屏 canvas → LRU 位图缓存（12 张，含渲染签名）→ 贴图上屏；后台按设置预取前后 0–4 组
+- **EPUB 阅读**：epub.js 分页排版；图片型漫画书双页并排贴中线（封面单页居中），缩放档位 50%–200%；文字型书流式分页 + 字号档位；断点续读恢复排版状态（单/双页、方向、字号/缩放）
+- **CBZ 阅读**：压缩包内图片按文件名自然排序逐页浏览（1 → 2 → 10，兼容零填充）；导入即统计页数、首页自动作封面；复用 PDF 的页组 / 缓存 / 动画全套管线
+- **MOBI 阅读**：自研零依赖解析（PalmDB 记录表 + MOBI 头 + EXTH + PalmDOC LZ77 解压），按正文图片引用顺序逐页浏览；导入即统计页数、首页自动作封面；与 CBZ 共用同一套图片页管线。当前范围仅限**图片型漫画 MOBI**，文字型（无内嵌图片）与加密 MOBI 打开时提示不支持
+- **性能保护**：滑块跨多页拖动零渲染开销（松手后并行渲染双页），作废渲染循环的迟到结果只入缓存不上屏
+
+#### AI 翻译
+
+- **入口**：设置 → 数据 → AI 功能扩展 → AI 配置；总开关、翻译语言（简体中文 / 英文 / 日文）与模型配置都在这里，关闭后阅读页按钮失活
+- **模型配置**：可保存多套（名称、接口地址、API Key、模型名、接口协议）并单选「当前使用」；协议可选 OpenAI 兼容（`/chat/completions`）或 Anthropic 兼容（`/v1/messages`），「测试连接」返回模型名与往返耗时，DeepSeek 预设一键填入草稿（不覆盖已填 Key）
+- **选词**：阅读页按 `A` 或点顶栏「AI 翻译」进入选词态，鼠标 / 触控板拖出矩形框立即翻译，框内显示转圈；选词期间工具栏抑制、`Esc` 取消；未识别到文字给出提示且不落库
+- **译文框**：玻璃选框原地变为白色译文框且尺寸不变，文字垂直居中、溢出可滚动；字号取「页显示高度 × 模型建议比例」后再按框内可用空间等比收缩
+- **框操作**：整框拖动改位置、右下角手柄改尺寸、左上角折叠为小圆球（点击恢复）、删除；顶栏下拉提供「全部隐藏 / 全部折叠 / 全部展开」
+- **持久化**：译文、归一化矩形、字号比例与折叠态按书 + 页落库，删书级联清除；切换单 / 双页、缩放与方向后自动贴回原气泡，翻页时覆盖层随页门控
+- **支持范围**：PDF、CBZ、MOBI 与图片型 EPUB 的单页 / 双页 / 上→下纵向滚动；文字型 EPUB 为流式排版、无稳定页边界，按 `A` 明确提示不支持
+- **请求**：外网请求全部集中在主进程，翻译请求 60s 超时，只在主动框选或测试连接时发出；会把框选截图与书名发到你配置的服务（译文语言、配置与译文均存本机，API Key 明文保存在本地设置）
+
+#### 阅读统计
+
+- 入口：设置 → 数据 → 阅读时间统计
+- 概览：总阅读时长、今日阅读（附昨日对比）、连续阅读天数
+- 近 7 / 30 天每日柱状图，一次拉取、切换不重复请求
+- 书籍排行：今日 / 总计两种口径，显示时长、占比条与最近阅读时间
+- 计时：在阅读页每 30 秒结算一次，页面隐藏、窗口失焦或加载失败时自动暂停，跨天自动切分归属日期
+
+#### 设置
+
+| 设置项 | 取值 | 默认 |
+| --- | --- | --- |
+| 界面语言 | 跟随系统 / 中文 / English / 日本語 | 跟随系统 |
+| 默认阅读模式 | 单页 / 双页 | 单页 |
+| 默认阅读方向 | 左→右（LTR）/ 右→左（RTL）/ 上→下（TTB） | RTL |
+| 主题 | 浅色 / 深色 / 跟随系统 | 跟随系统 |
+| 预加载页组数 | 0–4 | 2 |
+| 双页封面单独成页 | 开 / 关 | 开 |
+
+单本书的进度记录优先于全局默认（漫画阅读器与图片型 EPUB 阅读页顶栏的「封面单页 / 封面并排」按钮可为单本书覆盖该值）。
+
+设置页「数据」分组提供阅读统计与 AI 配置（AI 功能扩展）入口；「关于」分组还提供当前版本查看与检查更新（Windows 增量更新，macOS 跳转浏览器下载）。
+
+</details>
+
+## 🛠️ 技术栈
+
+| 层 | 技术 |
+| --- | --- |
+| 桌面框架 | Electron 42 |
+| 前端 | Vue 3 + TypeScript + Pinia + Vue Router，Vite 5 构建（vite-plugin-electron） |
+| PDF 渲染 | pdfjs-dist 4.x（渲染进程 worker 解析 → canvas） |
+| EPUB 渲染 | epubjs 0.3.x（渲染进程解包 → 分页排版；图片型书自适应缩放） |
+| CBZ 渲染 | yauzl 3.x（主进程按需解压 zip 内图片，经 ireader://cbz/{id}/{page} 逐页供给） |
+| MOBI 解析 | 自研零依赖（PalmDB 记录偏移直读单条记录 + PalmDOC LZ77 解压，经 ireader://mobi/{id}/{page} 逐页供给） |
+| 数据库 | better-sqlite3 12.x（主进程内嵌 SQLite，WAL 模式） |
+| 界面语言 | 自研零依赖 i18n，三语词典类型同构；Intl 处理日期、时长与复数，Intl.Collator 排序 |
+| AI 翻译 | 主进程全局 `fetch`（60s 超时、不引入 SDK）：OpenAI 兼容 `/chat/completions` 与 Anthropic 兼容 `/v1/messages` 双协议，发送框选图 base64 + 提示词，解析译文与建议字号 |
+| 打包 | electron-builder 26（macOS DMG / Windows NSIS） |
+| 测试 | Vitest 1.x（页组划分、封面队列、CBZ 排序与尺寸、MOBI 解析内核、滚轮滚动状态机、AI 提示词解析、i18n 与排序等纯逻辑，476 个用例） |
+
+## 🧭 架构
+
+Electron 双进程，前后端分离：
+
+```
+渲染进程（Vue 3 SPA）
+  文库 / 阅读器 / 设置 / 阅读统计 四路由
+  PDF：pdf.js worker → 离屏 canvas → LRU 缓存 → 上屏
+  EPUB：epub.js 解包 → 分页渲染（图片型书按 spine 页模型）
+  CBZ / MOBI：逐页拉取图片（主进程按需解压 / 解压文本 + 直读图片记录）→ 同 PDF canvas 管线
+  上→下：VerticalScrollView 行盒布局 + 窗口化挂载（canvas 自渲染，与横向共用页组表）
+  AI 翻译：页盒覆盖层（归一化矩形）→ 框选截图 → IPC → 主进程请求 → 译文按书 + 页落库
+  i18n：三语词典 + Intl 格式化，locale 变更驱动全站重渲染
+        ▲ IPC（contextBridge 类型安全 API，contextIsolation + sandbox）
+主进程（Node.js）
+  文库 / 合集 / 进度 / 设置 / AI 服务（唯一外网出口：OpenAI / Anthropic 双协议），封面落盘，日志
+  ireader:// 自定义协议（按 id 提供 PDF / EPUB / CBZ / MOBI 页面与封面，不暴露文件路径）
+        ▲
+  {userData}/ireader.db（SQLite WAL）+ {userData}/covers/
+```
+
+```
+├── electron/          # 主进程：main / preload / db(repos+迁移) / services(含 aiService·aiProtocol·aiReply) / ipc
+├── src/               # 渲染进程：views / stores / services(pdf·epub·imagePage·cache·pageCurl·spread·verticalLayout·aiCrop·aiTranslation) / components
+├── src/i18n/          # 三语词典、时长/日期格式化与错误码映射
+├── shared/types.ts    # 前后端共享类型（Book / Collection / Settings / Result…）
+├── pics/              # 界面截图
+└── build/             # 打包资源（icon 等）
+```
+
+安全基线：渲染进程沙箱启用、`contextIsolation: true`、`nodeIntegration: false`；本地文件只能经 `ireader://pdf/{id}`、`ireader://epub/{id}`、`ireader://cbz/{id}/{page}`、`ireader://mobi/{id}/{page}`、`ireader://cover/{id}` 按 id 获取。AI 翻译是唯一主动外发内容的功能，只把框选截图与书名发往你配置的模型服务。
+
+<details>
+<summary><b>🗄️ 数据模型（SQLite，增量迁移）</b></summary>
+
+- `books`：书名、格式（由扩展名派生）、规范化路径（唯一）、页数、封面路径、添加 / 最近阅读时间、`collection_id`（NULL = 未分组）
+- `collections`：合集（id、标题、创建时间）
+- `reading_progress`：每本书一条（页码、模式、方向、缩放、cfi/percentage（EPUB 定位）、纵向双页行内页序 `row_order`，变更防抖 1s 保存，退出强制落盘）
+- `reading_stats`：阅读时长日粒度聚合（每本书每天一行，毫秒累加；删书级联清除）
+- `ai_translations`：AI 框选译文（书 id + 页码 + 归一化矩形 + 译文 + 字号比例 + 折叠态 + 创建时间；删书级联清除）
+- `settings`：key-value（JSON）
+
+迁移用 `PRAGMA user_version` 版本号 + 顺序脚本（当前 v7：合集归属、进度 cfi/percentage、阅读时长统计、纵向双页行内页序、AI 译文记录、单本封面单页覆盖），只追加不回改。
+
+</details>
+
+## 💻 本地开发
+
+```bash
+npm install        # 安装依赖（postinstall 自动 electron-rebuild better-sqlite3）
+npm run dev        # 启动开发环境
+npm test           # Vitest 单元测试
+npm run typecheck  # vue-tsc 类型检查
+```
+
+> 注意：`better-sqlite3` 是为 Electron ABI 编译的原生模块，直接用系统 Node 运行会报 `ERR_DLOPEN_FAILED`；如需脚本化操作数据库，使用 `ELECTRON_RUN_AS_NODE=1 npx electron <脚本>`。
+
+欢迎提交 Issue 与 Pull Request。
+
+## 📦 打包发布
+
+```bash
+npm run build      # 类型检查 → vite 构建 → electron-builder
+```
+
+产物输出至 `release/<版本号>/`：
+
+- `IReader-<版本号>-mac.dmg` — macOS 安装镜像
+- `mac-arm64/IReader.app` — 可直接使用的应用包
+
+要点：
+
+- macOS 当前使用 **ad-hoc 签名**（`identity: "-"`，无需证书；`hardenedRuntime: false` 避免 ad-hoc 下库校验拒绝 Electron 预签名 framework）：下载安装后首次打开如提示「无法检查它是否包含恶意软件」，在 系统设置 → 隐私与安全性 点击「仍要打开」放行一次即可
+- `asarUnpack` 已含 `better-sqlite3`（.node 原生二进制不能从 asar 内加载）
+- Windows NSIS 目标已配置并完成实机验收
+
+### 发布到 GitHub Releases
+
+安装包不进 git 仓库（`.gitignore` 已忽略 `release/`），由 **GitHub Actions 自动构建并发布**：推送 `v*` 格式的版本 tag 即触发——先跑类型检查与测试，再在 macOS / Windows 双平台构建，产物自动挂到 Release 并生成更新说明。
+
+**标准发版流程**（要求 git 工作区干净）：
+
+```bash
+# 1. 提升版本号，按改动性质三选一（自动改 package.json 的 version →
+#    自动 commit（message 为版本号）→ 自动打 v 前缀 tag，无需手写版本号）：
+npm version patch          # 修订号 +1，bug 修复          1.0.1 → 1.0.2
+npm version minor          # 次版本 +1，新功能且兼容      1.0.1 → 1.1.0
+npm version major          # 主版本 +1，破坏性改动        1.0.1 → 2.0.0
+
+# 2. 推送分支与 tag（tag 是触发自动发布的开关）：
+git push origin main --follow-tags
+
+# 3. 盯进度与验收：
+gh run list --workflow Release --limit 1   # 查最新构建状态（记下 run-id）
+gh run watch <run-id> --exit-status        # 可选：终端实时盯进度
+gh release view v<新版本号>                 # 构建完校验 Release 与双平台产物
+```
+
+构建约 5～10 分钟，进度也可在仓库 **Actions** 页查看；完成后 Release 自动出现在 Releases 页。
+
+**发版失败需要重跑时**（tag 指向旧 commit，Actions 页 re-run 无效，须重打 tag）：
+
+```bash
+git push origin :refs/tags/vx.y.z   # 删除远程旧 tag
+git tag -f vx.y.z                   # 本地把 tag 重打到修复后的最新 commit
+git push origin vx.y.z              # 单独推 tag，重新触发构建
+```
+
+本地手动构建（备选）：`npm run build` 后执行
+`gh release create v<版本号> "release/<版本号>/IReader-<版本号>-mac.dmg" --title "v<版本号>" --notes "更新说明"`。
+
+## 📄 许可证
+
+本项目基于 [MIT](./LICENSE) 许可证开源。

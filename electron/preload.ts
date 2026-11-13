@@ -30,7 +30,9 @@ const ireaderApi = {
   dialog: {
     pickBookFiles: (): Promise<Result<string[] | null>> =>
       ipcRenderer.invoke('dialog:pickBookFiles'),
-    pickFolder: (): Promise<Result<string | null>> => ipcRenderer.invoke('dialog:pickFolder'),
+    /** 选择漫画文件夹（可多选）：选中的文件夹按「一个文件夹 = 一本漫画」展开 */
+    // [改动] 返回 string[]（多选文件夹）
+    pickFolder: (): Promise<Result<string[] | null>> => ipcRenderer.invoke('dialog:pickFolder'),
   },
   library: {
     import: (
@@ -75,6 +77,13 @@ const ireaderApi = {
   cover: {
     submit: (bookId: number, image: ArrayBuffer, numPages: number): Promise<Result<void>> =>
       ipcRenderer.invoke('cover:submit', { bookId, image, numPages }),
+  },
+  // [新增] background 命名空间
+  background: {
+    /** 选择并保存自定义背景图；返回文件名，用户取消时为 null */
+    choose: (): Promise<Result<string | null>> => ipcRenderer.invoke('background:choose'),
+    /** 删除已保存的自定义背景图 */
+    reset: (): Promise<Result<void>> => ipcRenderer.invoke('background:reset'),
   },
   settings: {
     all: (): Promise<Result<Settings>> => ipcRenderer.invoke('settings:all'),

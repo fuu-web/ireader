@@ -1,21 +1,8 @@
 <template>
-  <div class="library-view">
-    <!-- 首屏 hero：一个核心价值、一句副标题、一个主要操作 -->
-    <section v-if="!activeCollection" class="hero">
-      <!-- 背景图为整窗底图（.library-view 承载）；此处深色渐变保障白字可读 -->
-      <div class="hero-veil" aria-hidden="true" />
-      <div class="hero-inner">
-        <h1 class="hero-title">{{ t('library.title') }}</h1>
-        <p class="hero-sub">{{ t('library.subtitle') }}</p>
-        <div class="hero-actions">
-          <button class="btn-primary" @click="onImportFiles">{{ t('library.import') }}</button>
-          <button class="hero-ghost" @click="onImportFolder">{{ t('library.importFolder') }}</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 合集视图头部：返回 / 标题 / 数量 / 重命名 / 解散 -->
-    <header v-else class="collection-head">
+  <!-- [改动] 根节点绑定 sbw 变量（滚动条宽度），胶囊按它补偿右边距 -->
+  <div class="library-view" :style="{ '--sbw': scrollbarWidth + 'px' }">
+    <!-- 合集视图头部：返回 / 标题 / 数量 / 导入 / 从主页添加 / 重命名 / 解散 -->
+    <header v-if="activeCollection" class="collection-head">
       <button class="ghost" @click="backHome">{{ t('common.back') }}</button>
       <div class="collection-head-info">
         <h1 class="collection-title">{{ activeCollection.title }}</h1>
@@ -23,6 +10,14 @@
           {{ tp('library.collection.meta', collectionBooks.length) }}
         </span>
       </div>
+      <!-- 导入入口收进头部（原独立工具行已移除）：合集内导入直接归属本合集 -->
+      <button class="primary pill head-import" @click="onImportBookFolder">
+        {{ t('library.import') }}
+      </button>
+      <button class="pill head-import" @click="onImportFiles">{{ t('library.importFiles') }}</button>
+      <button class="ghost head-action" @click="addFromHome = true">
+        {{ t('library.collection.addFromHome') }}
+      </button>
       <button class="ghost head-action" @click="askRenameCollection">
         {{ t('library.collection.rename') }}
       </button>
@@ -31,14 +26,7 @@
       </button>
     </header>
 
-    <!-- 合集视图工具行：导入直入合集 / 从主页多选添加 -->
-    <div v-if="activeCollection" class="toolbar collection-toolbar">
-      <button class="btn-primary" @click="onImportFiles">{{ t('library.import') }}</button>
-      <button @click="onImportFolder">{{ t('library.importFolder') }}</button>
-      <button @click="addFromHome = true">{{ t('library.collection.addFromHome') }}</button>
-    </div>
-
-    <!-- 工具行：搜索 / 排序 / 新建合集 / 设置 -->
+    <!-- 工具行：搜索 / 导入（胶囊）/ 排序 / 新建合集 / 设置 -->
     <div v-if="!activeCollection" class="toolbar">
       <input
         v-model="library.keyword"
@@ -46,6 +34,11 @@
         type="text"
         :placeholder="t('library.search.placeholder')"
       />
+      <!-- 导入入口与搜索框同一行左对齐：胶囊造型，与右侧排序组分离 -->
+      <div class="import-group">
+        <button class="primary pill" @click="onImportBookFolder">{{ t('library.import') }}</button>
+        <button class="pill" @click="onImportFiles">{{ t('library.importFiles') }}</button>
+      </div>
       <div class="toolbar-group">
         <SelectMenu
           v-model="library.sortBy"
@@ -137,8 +130,9 @@
     <section v-else class="state-tip empty">
       <p>{{ library.keyword ? t('library.empty.noMatch') : t('library.empty.title') }}</p>
       <div v-if="!library.keyword" class="empty-actions">
-        <button class="btn-primary" @click="onImportFiles">{{ t('library.importPlain') }}</button>
-        <button class="ghost" @click="onImportFolder">{{ t('library.importFolder') }}</button>
+        <!-- [改动] 空态拆成导入书籍 + 导入文件 -->
+        <button class="btn-primary" @click="onImportBookFolder">{{ t('library.importPlain') }}</button>
+        <button class="ghost" @click="onImportFiles">{{ t('library.importFiles') }}</button>
       </div>
     </section>
 
@@ -221,9 +215,8 @@
     />
   </div>
 </template>
-
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Book, Collection, SortBy } from '../../shared/types'
 import { useLibraryStore } from '../stores/library'
@@ -246,6 +239,40 @@ import { SIDE_CLOSE_MS, SIDE_ENTER_MS, type SideBookPhase } from '../services/si
 
 const library = useLibraryStore()
 const router = useRouter()
+
+/**
+ * 滚动条宽度（px）：网格自身滚动，滚动条会吃掉内容右侧约 15px。
+ * 顶部胶囊在滚动容器外面，若不加这个宽度就会比下面的卡片多伸出一截（右边"长出来"）。
+ * 这里实测一次并写进 --sbw，胶囊的右边距用它补偿。
+ */
+// [新增] 实测滚动条宽度写入 --sbw
+const scrollbarWidth = ref(0)
+
+function measureScrollbar(): void {
+  const grid = document.querySelector<HTMLElement>('.book-grid')
+  scrollbarWidth.value = grid ? grid.offsetWidth - grid.clientWidth : 0
+}
+
+/** 网格尺寸一变就重测（内容少时没有滚动条、书多时才出现，靠 ResizeObserver 捕捉） */
+let gridObserver: ResizeObserver | null = null
+let gridObserved: HTMLElement | null = null
+
+/**
+ * 观察当前网格。网格由 v-else-if 控制，数据未就绪时可能还没渲染，
+ * 因此找不到就隔 50ms 再试（最多 20 次，约 1s），避免首屏测量落空。
+ */
+function observeActiveGrid(attempt = 0): void {
+  const grid = document.querySelector<HTMLElement>('.book-grid')
+  if (!grid) {
+    if (attempt < 20) window.setTimeout(() => observeActiveGrid(attempt + 1), 50)
+    return
+  }
+  if (gridObserved !== grid) {
+    gridObserved = grid
+    gridObserver?.observe(grid)
+  }
+  measureScrollbar()
+}
 const route = useRoute()
 
 // 排序下拉选项：value 与 SortBy 对齐，SelectMenu 泛型据此推断
@@ -278,22 +305,34 @@ onMounted(() => {
   if (typeof q === 'string' && q && Number.isFinite(Number(q))) {
     activeCollectionId.value = Number(q)
   }
+  // 顶部胶囊要让出滚动条宽度，窗口尺寸变化后重新测量
+  gridObserver = new ResizeObserver(() => measureScrollbar())
+  void nextTick(observeActiveGrid)
+  window.addEventListener('resize', measureScrollbar)
 })
 
 onUnmounted(() => {
   library.unsubscribeChanges()
+  window.removeEventListener('resize', measureScrollbar)
+  gridObserver?.disconnect()
+  gridObserver = null
+  gridObserved = null
   clearSideTimers()
 })
 
 // —— 导入（主页导入到未分组；合集视图内导入直接归属当前合集） ——
+// 「导入书籍」选文件夹：一个文件夹 = 一本漫画；选中总目录则其下每本都导入
+// [新增] 多选文件夹导入
+async function onImportBookFolder() {
+  const dirs = await ipc.dialog.pickFolder()
+  if (dirs && dirs.length) await importAndReport(dirs, activeCollectionId.value)
+}
+
+// 「导入文件」选单本文件：PDF / EPUB / ZIP / CBZ / MOBI
+// [新增] 单文件导入入口
 async function onImportFiles() {
   const paths = await ipc.dialog.pickBookFiles()
   if (paths && paths.length) await importAndReport(paths, activeCollectionId.value)
-}
-
-async function onImportFolder() {
-  const dir = await ipc.dialog.pickFolder()
-  if (dir) await importAndReport([dir], activeCollectionId.value)
 }
 
 async function importAndReport(paths: string[], collectionId: number | null = null) {
@@ -358,7 +397,18 @@ async function confirmRemove(deleteFile: boolean) {
   if (!book) return
   removeFromQueue(book.id)
   await library.remove(book.id, deleteFile)
-  showToast(t(deleteFile ? 'library.toast.removedWithFile' : 'library.toast.removed', { title: book.title }))
+  // 图片文件夹漫画按约定不删目录（防止误删整本素材），提示必须改成「文件夹已保留」
+  const dirKept = deleteFile && book.format === 'dir'
+  showToast(
+    t(
+      dirKept
+        ? 'library.toast.removedDirFolderKept'
+        : deleteFile
+          ? 'library.toast.removedWithFile'
+          : 'library.toast.removed',
+      { title: book.title }
+    )
+  )
 }
 
 // —— 缺失重定位（§8.2：重新定位/移除/取消）——
@@ -407,6 +457,16 @@ function toggleOrder() {
 const activeCollectionId = ref<number | null>(null)
 const activeCollection = computed(
   () => library.collections.find((c) => c.id === activeCollectionId.value) ?? null
+)
+
+// 主页 / 合集视图切换、书数变化都会改变网格是否需要滚动条，重测一次让胶囊右边距跟着走
+watch(
+  [activeCollectionId, () => library.books.length],
+  async () => {
+    await nextTick()
+    observeActiveGrid()
+  },
+  { flush: 'post' }
 )
 
 /** 主页网格中的书：仅未分组，走用户排序偏好（filteredBooks 已排序） */
@@ -607,61 +667,9 @@ function askDissolve() {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  /* 整窗背景：主题纱罩 + bg001.jpg 铺满 + 底色兜底（阅读页不受影响，自覆恒黑） */
-  background: var(--page-veil), url('/bg001.jpg') center / cover no-repeat, var(--bg);
+  /* 整窗背景：主题纱罩 + 背景图（可用设置替换）+ 底色兜底（阅读页不受影响，自覆恒黑） */
+  background: var(--page-veil), var(--page-bg-image) center / cover no-repeat, var(--bg);
   color: var(--text);
-}
-
-/* —— hero：核心价值区（固定高度；背景图为整窗底图，此处叠深色渐变保障白字） —— */
-.hero {
-  position: relative;
-  overflow: hidden;
-  padding: 52px 40px 44px;
-}
-
-/* 深色渐变遮罩层：保障 hero 白字可读 */
-.hero-veil {
-  position: absolute;
-  inset: 0;
-  background: var(--hero-veil);
-  pointer-events: none;
-}
-
-.hero-inner {
-  position: relative;
-  z-index: 1;
-}
-
-.hero-title {
-  font-size: 30px;
-  letter-spacing: 0.5px;
-  color: #fff;
-}
-
-.hero-sub {
-  margin: 10px 0 0;
-  font-size: 14px;
-  line-height: 1.6;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.hero-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.hero-ghost {
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.35);
-  color: rgba(255, 255, 255, 0.88);
-}
-
-.hero-ghost:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #fff;
 }
 
 /* —— 合集视图两栏布局：左网格 + 右“继续阅读”栏 ——
@@ -685,12 +693,28 @@ function askDissolve() {
 .collection-side {
   width: 260px;
   flex-shrink: 0;
-  padding: 20px 24px;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+  /* 悬浮玻璃卡片：四周留白，不再贴窗口边缘（原来贴右贴底 + 左侧分隔线） */
+  margin: 16px 16px 16px 0;
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.52);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 30px rgba(28, 28, 26, 0.12);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+}
+
+:global(:root[data-theme='dark']) .collection-side {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(28, 28, 30, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
 .side-title {
@@ -787,24 +811,70 @@ function askDissolve() {
   color: var(--danger-hover);
 }
 
-.collection-toolbar {
-  border-bottom: 1px solid var(--border);
+/* [改动] 头部塞导入按钮，间距 12px */
+.collection-head {
+  /* 头部塞进了导入按钮组：缩紧间距避免挤压标题 */
+  gap: 12px;
 }
 
-/* —— 工具行 —— */
+/* 头部的导入胶囊：比文库工具栏那两颗略小一档 */
+.head-import {
+  padding: 6px 14px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* —— 工具行：悬浮胶囊玻璃条（灵动岛那种连续曲率圆角） —— */
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 40px;
-  background: var(--surface-alpha);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  /* 左边与网格内容对齐（40px）；右边还要再让出滚动条宽度，否则胶囊会比卡片多伸出 15px */
+  margin: 12px calc(40px + var(--sbw, 0px)) 0 40px;
+  padding: 8px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 22px;
+  corner-shape: squircle;
+  background: rgba(255, 255, 255, 0.42);
+  -webkit-backdrop-filter: blur(36px) saturate(200%);
+  backdrop-filter: blur(36px) saturate(200%);
+  box-shadow:
+    0 10px 28px rgba(28, 28, 26, 0.1), 0 2px 6px rgba(28, 28, 26, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+:global(:root[data-theme='dark']) .toolbar {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(28, 28, 30, 0.48);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* 首行即工具栏：Mac 隐藏标题栏后需给红绿灯留出左侧避让 */
+:global(.platform-mac) .toolbar {
+  padding-left: 84px;
 }
 
 .search-input {
+  /* 搜索框吃掉中间空白，避免胶囊两端各一坨控件、中间一大段空 */
   flex: 1;
-  max-width: 280px;
+  min-width: 180px;
+  max-width: none;
+  border-radius: 12px;
+}
+
+/* 导入入口：紧贴搜索框右侧，胶囊造型 */
+.import-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pill {
+  border-radius: 999px;
+  padding: 7px 18px;
+  white-space: nowrap;
 }
 
 .toolbar-group {
@@ -823,6 +893,13 @@ function askDissolve() {
   font-size: 12.5px;
   padding: 6px 10px;
   color: var(--text-secondary);
+  border-radius: 12px;
+}
+
+/* 右侧两个文字入口也给同样的圆角，和框式控件对齐（不再一个圆一个方） */
+.ghost,
+.settings-link {
+  border-radius: 12px;
 }
 
 .result-count {
@@ -922,5 +999,4 @@ function askDissolve() {
 .toast-fade-enter-from,
 .toast-fade-leave-to {
   opacity: 0;
-}
-</style>
+}</style>

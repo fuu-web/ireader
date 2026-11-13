@@ -19,6 +19,29 @@ Import · Collections · Immersive reading · Resume where you left off — your
 
 *Library home — import, search, sorting and collections at a glance*
 
+---
+
+**About this fork**: a **modified version** of [hi-done/ireader](https://github.com/hi-done/ireader)
+(MIT), based on upstream `v2.0.0`. Author of the original project: **hi-done** —
+<https://github.com/hi-done/ireader>.
+
+In one sentence: this fork adapts the reader to **`nhentai-jmcomic-downloader`**
+(the downloader keeps evolving, so some issues are fixed as it updates), and the **pages and
+layout were redone to my own taste**. Once the downloader iteration is finished I will keep
+working on the reader, focusing on **backgrounds and the bookshelf**.
+
+What changed: [`CHANGES.md`](./CHANGES.md); every change is annotated inline with
+`[新增]` / `[改动]`. The feature docs below are upstream's original text.
+
+| Kind | Count | Summary |
+| --- | --- | --- |
+| New source | 4 files + 3 tests | Image-folder comics (one folder = one book), gallery `info.json` metadata, custom background image |
+| Modified source | 25 files | Wiring for the `dir` format, folder-based import, glass book cards, floating capsule header, right-aligned settings |
+| New docs | 3 files | [`CHANGES.md`](./CHANGES.md), [`UPSTREAM.md`](./UPSTREAM.md), [`NOTICE`](./NOTICE) |
+| Line endings only | 15 files | No content change, they only show up in diffs |
+
+Per-file detail (what changed and where): **[`CHANGES.md`](./CHANGES.md)**
+
 </div>
 
 ---
@@ -34,6 +57,64 @@ Import · Collections · Immersive reading · Resume where you left off — your
 - 🗂️ **Collections** — organize manga by series; a book belongs to exactly one collection at a time; import straight into a collection, or fuzzy-search from the home page and select all
 - 📊 **Reading stats** — total time, today's reading and streak at a glance, with 7 / 30-day bar charts and a book ranking; time is tracked automatically and the ranking switches between today / all time
 - ⚡ **Smooth rendering** — offscreen canvas rendering plus an LRU bitmap cache for millisecond cache hits; dragging the slider across pages costs zero rendering, and adjacent spreads are prefetched in the background
+
+## 🔖 What I changed (vs upstream `v2.0.0`)
+
+Each change is annotated right next to the code: `// [新增] …` (added) or `// [改动] …` (changed),
+and `<!-- [新增] … -->` inside Vue templates. Open any file and scroll to the change;
+see [`CHANGES.md`](./CHANGES.md) for the grouped summary.
+
+### 🆕 New features (4 source files + 3 tests)
+
+| File | Kind | What was added on top of v2.0.0 |
+| --- | --- | --- |
+| `electron/services/dirService.ts` | 新增 | **Image-folder comics**: one folder = one book, natural page order, per-page reads, volume sub-folder hoisting |
+| `electron/services/libraryScan.ts` | 新增 | **Import scan**: a folder with images is one book, otherwise recurse; skips hidden dirs / `__MACOSX` / symlinks |
+| `electron/services/galleryInfo.ts` | 新增 | **Gallery `info.json`**: title from `full_title` only (zh > ja > original), author auto-collection, `gallery_id` dedupe |
+| `electron/services/backgroundService.ts` | 新增 | **Custom background image**: copied into `userData/backgrounds`, served via `ireader://background/{name}` |
+| `dirService.test.ts` · `libraryScan.test.ts` · `galleryInfo.test.ts` | 新增 | Unit tests for the above |
+
+### ✏️ Main process (10 files)
+
+| File | Kind | What changed |
+| --- | --- | --- |
+| `shared/types.ts` | 改动 | `BookFormat` gains `'dir'`; new `PagedImageFormat`, `Book.author`, `Settings.background` |
+| `electron/services/protocol.ts` | 改动 | New `ireader://dir/{id}/{page}` and `ireader://background/{name}`; paged-image serving unified |
+| `electron/services/libraryService.ts` | 改动 | Import goes through the scanner; image page counts stored; `dir` delete keeps the folder; empty author collections pruned |
+| `electron/db/database.ts` | 改动 | Migration **v8**: `author_key` / `author_name` / `gallery_id` |
+| `electron/db/repos/booksRepo.ts` | 改动 | Author columns, `findByGalleryId()`, `countByCollection()` |
+| `electron/db/repos/collectionsRepo.ts` | 改动 | `author_key`, `findByAuthorKey()`, `listAutoCreated()` |
+| `electron/ipc/handlers.ts` | 改动 | Import dialog now multi-folder; `background:choose` / `background:reset` |
+| `electron/preload.ts` | 改动 | `pickFolder()` returns multiple paths; `background.choose()` |
+| `electron/main.ts` | 改动 | `initBackgroundService(userDataDir)` at startup |
+| `electron/services/appLocale.ts` | 改动 | Image file-dialog filter names (3 locales) |
+
+### ✏️ Renderer (13 files)
+
+| File | Kind | What changed |
+| --- | --- | --- |
+| `src/services/imagePage.ts` · `pageThumbnail.ts` · `coverQueue.ts` | 改动 | Recognize the new `dir` format |
+| `src/stores/reader.ts` | 改动 | Opens `dir` through the image-page pipeline |
+| `src/services/ipc.ts` | 改动 | `background.choose()` wiring |
+| `src/views/LibraryManageView.vue` | 改动 | Shows "Image folder"; delete toast says "folder kept" |
+| `src/i18n/locales/{zh-CN,en,ja}.ts` | 改动 | New strings for background image / `importFiles` / `dir` |
+| `libraryList.test.ts` · `libraryManage.test.ts` | 改动 | Tests follow the new format |
+
+### 🎨 UI (8 files)
+
+| File | Kind | What changed |
+| --- | --- | --- |
+| `src/views/LibraryView.vue` | 改动 | Hero removed; import entry moved into the header; floating capsule bar aligned to scrollbar width |
+| `src/components/library/BookCard.vue` | 改动 | Whole-card glass; transparent title base; **never `overflow:hidden`** (Chromium grid bug) |
+| `src/components/library/CollectionCard.vue` | 改动 | Same baseline height as book cards |
+| `src/components/ui/CardTip.vue` | 改动 | Liquid-glass tooltip (`backdrop-filter: blur(18px)`) |
+| `src/style.css` | 改动 | `--page-bg-image`, `--tip-*` glass tokens, capsule `.page-head`, `--hero-veil` removed |
+| `src/theme.ts` | 改动 | Rewrites `--page-bg-image` from settings |
+| `src/views/SettingsView.vue` | 改动 | New "Background image" row; settings panel right-aligned |
+| `AiConfigView.vue` · `ReadingStatsView.vue` | 改动 | Background layer only (1 line each) |
+
+> **15 files** only had their line endings normalized (CRLF→LF): no content change.
+> See [`CHANGES.md`](./CHANGES.md).
 
 ## 🖼 Screenshots
 
@@ -288,6 +369,14 @@ git push origin vx.y.z              # push the tag alone to trigger a new build
 Manual local build (fallback): run `npm run build`, then
 `gh release create v<version> "release/<version>/IReader-<version>-mac.dmg" --title "v<version>" --notes "release notes"`.
 
-## 📄 License
+## 📄 License & Credits
 
 Released under the [MIT](./LICENSE) license.
+
+- **Upstream author**: [hi-done](https://github.com/hi-done)
+- **Upstream project**: <https://github.com/hi-done/ireader> (MIT, this repository is based on `v2.0.0`)
+- **What changed**: [CHANGES.md](./CHANGES.md) — file-by-file list
+
+This repository is a **modified version** (derivative work) of the upstream project, not the
+official upstream repository. The upstream copyright and license notice is in
+[LICENSE](./LICENSE); the list of changes made here is in [UPSTREAM.md](./UPSTREAM.md).

@@ -1,0 +1,21 @@
+IReader — 上游来源与署名 (NOTICE)
+
+=====================================
+
+本仓库（含其发布的安装包）是以下开源项目的修改版（derivative work）：
+
+  项目名称 : IReader — 纯离线的本地漫画阅读器（PDF / EPUB / CBZ / MOBI）
+  上游作者 : hi-done
+  上游地址 : https://github.com/hi-done/ireader
+  上游版本 : v2.0.0（提交 7c54341a1be3caf07dacd09023855e350b502efd）
+  上游许可 : MIT License
+
+上游原始版权声明见同目录 LICENSE 文件（"Copyright (c) 2026 IReader"），
+其条款适用于本仓库中来自上游的全部代码与资源。
+
+本仓库的修改内容、新增功能与差异清单见 UPSTREAM.md。
+本仓库并非上游官方仓库，其发布物不代表原作者背书；
+本仓库的提交是独立根提交，不包含上游的 git 历史（原因见 UPSTREAM.md）。
+
+依据 MIT 许可证"上述版权声明和本许可声明应包含在软件的所有副本或
+实质部分中"的要求，再分发本仓库或其安装包时请保留 LICENSE 与本文件。

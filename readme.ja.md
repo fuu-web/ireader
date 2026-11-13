@@ -19,6 +19,29 @@
 
 *ライブラリホーム —— インポート、検索、並び替え、コレクションを 1 画面に*
 
+---
+
+**このリポジトリについて**：[hi-done/ireader](https://github.com/hi-done/ireader)（MIT）の
+**改変版**です（上流ベース `v2.0.0`）。原作者は **hi-done**、上流プロジェクトは
+<https://github.com/hi-done/ireader>。
+
+ひとことで言うと：**`nhentai-jmcomic-downloader` ダウンローダーに合わせて改変した版**で
+（ダウンローダー側も随時更新され、それに伴い問題を修正していきます）、
+**ページとレイアウトは自分の好みで作り直しました**。ダウンローダーの改修が終わったら
+リーダーの改修を続け、**背景と本棚機能を重点的に仕上げる**予定です。
+
+変更点：[`CHANGES.md`](./CHANGES.md)。コードの各変更箇所には `[新增]` / `[改动]` の
+注釈が付いています。以下の機能説明は上流の原文のままです。
+
+| 種別 | 数 | 概要 |
+| --- | --- | --- |
+| 新規ソース | 4 本 + テスト 3 本 | 画像フォルダ漫画（1 フォルダ = 1 冊）、ギャラリー `info.json` メタデータ、カスタム背景画像 |
+| 変更ソース | 25 本 | `dir` 形式の配線、フォルダ選択インポート、ブックカードのガラス化、上部カプセル、設定の右寄せ |
+| 新規ドキュメント | 3 本 | [`CHANGES.md`](./CHANGES.md)、[`UPSTREAM.md`](./UPSTREAM.md)、[`NOTICE`](./NOTICE) |
+| 改行コードのみ | 15 本 | 内容の変更なし、差分にだけ出ます |
+
+ファイルごとの詳細（どこをどう変えたか）：**[`CHANGES.md`](./CHANGES.md)**
+
 </div>
 
 ---
@@ -34,6 +57,64 @@
 - 🗂️ **コレクション管理** — シリーズごとに漫画を整理。1 冊は同時に 1 つのコレクションに所属。コレクション内から直接インポートでき、ホームからあいまい検索 + 全選択で追加できます
 - 📊 **読書統計** — 総読書時間・今日の読書・連続日数を一覧でき、直近 7 / 30 日の棒グラフと書籍ランキングを表示。時間は自動で記録され、ランキングは今日 / 累計を切り替え可能
 - ⚡ **スムーズな描画** — オフスクリーン canvas 描画 + LRU ビットマップキャッシュでキャッシュヒットはミリ秒単位。スライダーでページをまたいでドラッグしても描画コストゼロ、前後のページ組をバックグラウンドで先読み
+
+## 🔖 変更点（上流 `v2.0.0` との差分）
+
+変更箇所のすぐ横に注釈があります：`// [新增] …`（追加）/ `// [改动] …`（変更）、
+Vue テンプレート内は `<!-- [新增] … -->`。ファイルを開いて変更箇所までスクロールしてください。
+カテゴリ別の概要は [`CHANGES.md`](./CHANGES.md) にあります。
+
+### 🆕 新機能（ソース 4 本 + テスト 3 本）
+
+| ファイル | 種別 | v2.0.0 に追加した内容 |
+| --- | --- | --- |
+| `electron/services/dirService.ts` | 新增 | **画像フォルダ漫画**：1 フォルダ = 1 冊、ファイル名の自然順、ページ単位読み出し |
+| `electron/services/libraryScan.ts` | 新增 | **インポート走査**：画像を含むフォルダは 1 冊、それ以外は再帰；隠しフォルダ等を除外 |
+| `electron/services/galleryInfo.ts` | 新增 | **ギャラリー `info.json`**：書名は `full_title` のみ、作者の自動コレクション、`gallery_id` 重複排除 |
+| `electron/services/backgroundService.ts` | 新增 | **カスタム背景画像**：`userData/backgrounds` にコピーし `ireader://background/{name}` で配信 |
+| `dirService.test.ts` · `libraryScan.test.ts` · `galleryInfo.test.ts` | 新增 | 上記の単体テスト |
+
+### ✏️ メインプロセス（10 本）
+
+| ファイル | 種別 | 変更内容 |
+| --- | --- | --- |
+| `shared/types.ts` | 改动 | `BookFormat` に `'dir'`；`PagedImageFormat` / `Book.author` / `Settings.background` |
+| `electron/services/protocol.ts` | 改动 | `ireader://dir/{id}/{page}`・`ireader://background/{name}` を追加 |
+| `electron/services/libraryService.ts` | 改动 | 走査経由のインポート；画像ページ数を保存；`dir` はフォルダを残す |
+| `electron/db/database.ts` | 改动 | マイグレーション **v8** |
+| `electron/db/repos/booksRepo.ts` | 改动 | 作者列、`findByGalleryId()`、`countByCollection()` |
+| `electron/db/repos/collectionsRepo.ts` | 改动 | `author_key`、`findByAuthorKey()`、`listAutoCreated()` |
+| `electron/ipc/handlers.ts` | 改动 | フォルダ複数選択；`background:choose` / `background:reset` |
+| `electron/preload.ts` | 改动 | `pickFolder()` が複数パスを返す；`background.choose()` |
+| `electron/main.ts` | 改动 | 起動時に `initBackgroundService()` |
+| `electron/services/appLocale.ts` | 改动 | 画像フィルター名（3 言語） |
+
+### ✏️ レンダラー（13 本）
+
+| ファイル | 種別 | 変更内容 |
+| --- | --- | --- |
+| `src/services/imagePage.ts` · `pageThumbnail.ts` · `coverQueue.ts` | 改动 | `dir` 形式に対応 |
+| `src/stores/reader.ts` | 改动 | `dir` を画像ページ経路で開く |
+| `src/services/ipc.ts` | 改动 | `background.choose()` の配線 |
+| `src/views/LibraryManageView.vue` | 改动 | 「画像フォルダ」表示；削除時にフォルダ保持を通知 |
+| `src/i18n/locales/{zh-CN,en,ja}.ts` | 改动 | 背景画像・`importFiles`・`dir` の文言追加 |
+| `libraryList.test.ts` · `libraryManage.test.ts` | 改动 | 新形式に合わせてテスト修正 |
+
+### 🎨 UI（8 本）
+
+| ファイル | 種別 | 変更内容 |
+| --- | --- | --- |
+| `src/views/LibraryView.vue` | 改动 | hero 削除；インポートをヘッダーへ；上部カプセルをスクロールバー幅に合わせる |
+| `src/components/library/BookCard.vue` | 改动 | カード全体のガラス化；**`overflow:hidden` 禁止**（Chromium グリッド不具合） |
+| `src/components/library/CollectionCard.vue` | 改动 | ブックカードと底辺を揃える |
+| `src/components/ui/CardTip.vue` | 改动 | ツールチップをリキッドグラス化 |
+| `src/style.css` | 改动 | `--page-bg-image`、`--tip-*`、カプセル、`--hero-veil` 削除 |
+| `src/theme.ts` | 改动 | 設定に応じて `--page-bg-image` を書き換え |
+| `src/views/SettingsView.vue` | 改动 | 「背景画像」行を追加；設定パネルを右寄せ |
+| `AiConfigView.vue` · `ReadingStatsView.vue` | 改动 | 背景レイヤーのみ（各 1 行） |
+
+> **15 本**は改行コード（CRLF→LF）のみの変更で、内容は変わっていません。
+> [`CHANGES.md`](./CHANGES.md) を参照。
 
 ## 🖼 画面イメージ
 
@@ -287,6 +368,14 @@ git push origin vx.y.z              # タグだけを push してビルドを再
 ローカルで手動ビルド（代替）：`npm run build` の後、
 `gh release create v<バージョン> "release/<バージョン>/IReader-<バージョン>-mac.dmg" --title "v<バージョン>" --notes "更新内容"`。
 
-## 📄 ライセンス
+## 📄 ライセンスと謝辞
 
 本プロジェクトは [MIT](./LICENSE) ライセンスで公開されています。
+
+- **上流の作者**：[hi-done](https://github.com/hi-done)
+- **上流プロジェクト**：<https://github.com/hi-done/ireader>（MIT、本リポジトリは `v2.0.0` がベース）
+- **変更点**：[CHANGES.md](./CHANGES.md)（ファイル別一覧）
+
+本リポジトリは上流プロジェクトの**改変版**（derivative work）であり、上流の公式リポジトリ
+ではありません。上流の著作権表示とライセンス条項は [LICENSE](./LICENSE) に、
+本リポジトリでの変更点は [UPSTREAM.md](./UPSTREAM.md) に記載しています。

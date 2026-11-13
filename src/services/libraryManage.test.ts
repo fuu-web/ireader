@@ -16,6 +16,7 @@ function book(overrides: Partial<Book> & Pick<Book, 'id' | 'title'>): Book {
     addedAt: 0,
     lastOpenedAt: null,
     collectionId: null,
+    author: null,  // [改动] 夹具补 author
     missing: false,
     progress: null,
     ...overrides,

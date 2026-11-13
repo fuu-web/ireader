@@ -49,7 +49,6 @@
     />
   </div>
 </template>
-
 <script setup lang="ts">
 // 文库合集卡片：封面铺满整卡（集内名称升序第一本），书名与数量叠在封面之上；
 // 卡高由 ::before 占位推出，与书卡外框等高（见样式注释）；
@@ -121,13 +120,14 @@ onBeforeUnmount(() => {
   --card-perspective: 560px;
 }
 
-/* 占位撑高：只提供高度，不参与绘制与命中 */
+/* 占位撑高：只提供高度，不参与绘制与命中。
+   高度对齐书卡：书卡比合集卡高 9px（书名条），这里少抵 9px，两种卡底线才能齐平 */
 .collection-card::before {
   content: '';
   width: 100%;
   aspect-ratio: 3 / 4;
-  /* 抵掉书名行 10px 底部内边距（见 .card-title-row） */
-  margin-bottom: -10px;
+  /* 抵掉书名行 10px 底部内边距（见 .card-title-row），再让出 9px 与书卡等高 */
+  margin-bottom: -1px;
 }
 
 /* —— 视差层 1：封面画面（反向滞后，比例同 demo 的 ±20px：横 8.33%、纵 6.25%；

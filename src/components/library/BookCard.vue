@@ -1,5 +1,10 @@
 <template>
   <div ref="cardEl" class="book-card tilt-card" @click="$emit('open', book.id)">
+    <!-- 整卡光感层：封面放大模糊后铺满卡壳，让封面光透到卡片边框与圆角上（光感玻璃） -->
+    <!-- [新增] 整卡光感层 -->
+    <span class="card-bleed-clip" aria-hidden="true">
+      <span class="card-bleed" :style="bleedStyle" />
+    </span>
     <div class="cover">
       <img v-if="book.coverUrl" :src="book.coverUrl" :alt="book.title" />
       <div v-else class="cover-placeholder">
@@ -69,8 +74,10 @@
     </div>
     <!-- 书名行：hover 触发上方提示框（书名 + 阅读进度两行）；
          .title 的 overflow:hidden 只影响自身，浮层由 CardTip 渲染到 body -->
-    <div class="card-title-row" @pointerenter="openTitleTip" @pointerleave="closeTip">
-      <div class="title">{{ book.title }}</div>
+    <div class="card-foot">
+      <div class="card-title-row" @pointerenter="openTitleTip" @pointerleave="closeTip">
+        <div class="title">{{ book.title }}</div>
+      </div>
     </div>
     <div class="card-actions">
       <!-- 三个操作按钮统一为 SF Symbols 风格描边图标 + 毛玻璃圆钮 -->
@@ -159,7 +166,6 @@
     />
   </div>
 </template>
-
 <script setup lang="ts">
 // 文库书卡片：封面 / 进度环 / 缺失徽章 / 三个操作按钮；卡壳与 3D 倾斜由全局 .tilt-card 承载
 // 对应设计文档 specs/图书卡片交互与图标苹果风美化设计方案-20261021.md §5.2
@@ -183,6 +189,13 @@ const removeText = computed(() => props.removeLabel ?? t('library.book.remove'))
 
 /** 进度口径与侧栏内页共用 bookProgress.progressPercentOf，避免两处漂移 */
 const progressPercent = computed(() => progressPercentOf(props.book))
+
+// [新增] 封面图作为整卡光感层背景
+const bleedStyle = computed(() => {
+  const style: Record<string, string> = {}
+  if (props.book.coverUrl) style.backgroundImage = `url("${props.book.coverUrl}")`
+  return style
+})
 
 /** 进度圆环周长（r=15.5） */
 const RING_CIRC = 2 * Math.PI * 15.5
@@ -250,18 +263,74 @@ onBeforeUnmount(() => {
 <style scoped>
 /* 卡壳（背景 / 边框 / 圆角 / 阴影 / 倾斜）由全局 .tilt-card 提供，此处只留内容布局 */
 .book-card {
-  padding: 8px;
+  /* 整张卡是一块玻璃：封面色层 + 白色玻璃纱都铺满整卡（含 4px 边框与底部底座），
+     边框与底座因此是同一材质的上下两段，颜色从上到下连续；底座不再单独上色。
+     注意：不能写 overflow: hidden——会触发 Chromium 网格行高 bug（首页书卡堆叠） */
+  position: relative;
+  isolation: isolate;
+  padding: 4px;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 1px 2px rgba(28, 28, 26, 0.06);
+}
+
+/* 玻璃层裁剪容器：绝对定位、不参与网格尺寸计算，只负责按卡片圆角裁剪 */
+.card-bleed-clip {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: var(--card-radius);
+  pointer-events: none;
+}
+
+/* 封面色层：放大模糊铺满整卡，为整块玻璃提供颜色 */
+.card-bleed {
+  position: absolute;
+  inset: -8%;
+  background-position: center;
+  background-size: cover;
+  filter: blur(34px) saturate(175%);
+  opacity: 0.55;
+  transform: scale(1.12);
+}
+
+/* 玻璃纱：盖在色层上、内容下；边框与底座共用同一层 → 颜色完全一致 */
+.card-bleed-clip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+:global(:root[data-theme='dark']) .book-card {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+:global(:root[data-theme='dark']) .card-bleed {
+  opacity: 0.45;
+}
+
+:global(:root[data-theme='dark']) .card-bleed-clip::after {
+  background: rgba(28, 28, 30, 0.62);
 }
 
 .cover {
   position: relative;
   aspect-ratio: 3 / 4;
   background: var(--placeholder);
-  border-radius: var(--card-cover-radius);
+  /* 只圆上面两角：下缘与玻璃底座齐平相接，避免圆角处露出卡片底色形成一道断带 */
+  border-radius: var(--card-cover-radius) var(--card-cover-radius) 0 0;
   overflow: hidden;
-  /* 封面细描边 + 轻阴影，从卡片底上再浮起一层 */
+  /* 封面细描边；底边不描线、不投影——任何下缘阴影都会在接缝处压出一条暗线 */
   border: 1px solid var(--border);
-  box-shadow: 0 1px 3px rgba(28, 28, 26, 0.12);
+  border-bottom: none;
+  box-shadow: none;
 }
 
 .cover img {
@@ -297,8 +366,28 @@ onBeforeUnmount(() => {
   color: #ffd60a;
 }
 
+/* 书名底座：本身完全透明——它只是同一块玻璃的下半段（玻璃层由卡壳的 .card-bleed-clip 提供），
+   所以边框与底座颜色天然一致，不会出现"另一块颜色" */
+.card-foot {
+  position: relative;
+  isolation: isolate;
+  /* 吃掉卡片内边距；上移 1px 与封面重叠，消除亚像素缝隙 */
+  margin: -1px -4px -4px;
+  /* 底部收窄：原 11px 四周内边距让书名条显得过厚，压到 7/10/8 */
+  padding: 7px 10px 8px;
+  overflow: hidden;
+  border-radius: 0 0 var(--card-radius) var(--card-radius);
+  background: transparent;
+}
+
 .title {
-  font-size: 13px;
+  position: relative;
+  z-index: 1;
+  /* 书名排版：字号收一档、行高收紧，底部不再抢封面的视觉重量 */
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -370,9 +459,9 @@ onBeforeUnmount(() => {
 /* —— 操作按钮组：封面右上角内缩 6px（与进度环边距接近），毛玻璃圆钮逐个错峰淡入 —— */
 .card-actions {
   position: absolute;
-  /* 14 = 卡片 border 1 + padding 8 + 内缩 5~6px，避免圆钮压在封面圆角边缘上 */
-  top: 14px;
-  right: 14px;
+  /* 11 = 卡片 border 1 + padding 4 + 内缩 6px，避免圆钮压在封面圆角边缘上 */
+  top: 11px;
+  right: 11px;
   display: flex;
   gap: 6px;
 }

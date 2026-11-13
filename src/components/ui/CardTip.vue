@@ -15,7 +15,6 @@
     </Transition>
   </Teleport>
 </template>
-
 <script setup lang="ts">
 // 悬停提示框（书卡 / 阅读器工具栏共用）：Teleport 到 body 用 fixed 定位，脱离 .tilt-card 的 3D 变换层，
 // 避免卡片倾斜时整层重采样导致的小字号发虚
@@ -138,18 +137,23 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* 材质单点：深浅主题由 --tip-* 令牌切换；fixed 坐标由脚本写入。
-   不透明底 + 默认字体渲染是刻意的：半透明与 antialiased 都会让小字发虚 */
+   液态玻璃：半透明底 + backdrop-filter 模糊折射下方封面，描边与内高光塑造玻璃边缘 */
 .app-tip {
   position: fixed;
   z-index: 40;
   box-sizing: border-box;
-  padding: 5px 9px;
+  /* [改动] 内边距 6/11、圆角 11px */
+  padding: 6px 11px;
   border: 1px solid var(--tip-border);
-  border-radius: 6px;
+  border-radius: 11px;
   background: var(--tip-bg);
+  /* [新增] backdrop-filter（含 -webkit-） */
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
   color: var(--tip-text);
   font-size: 12.5px;
-  font-weight: 500;
+  /* 玻璃底是半透明的：字重加一档保证小字仍清晰 */
+  font-weight: 600;
   line-height: 1.4;
   letter-spacing: 0;
   -webkit-font-smoothing: auto;
@@ -163,7 +167,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 9px;
+  padding: 7px 11px;
   white-space: normal;
   word-break: break-word;
   text-align: center;
@@ -172,7 +176,9 @@ onBeforeUnmount(() => {
 /* 进度行：比书名低一档，等宽数字避免百分比变化时抖动 */
 .app-tip-meta {
   font-size: 11.5px;
-  opacity: 0.8;
+  /* [改动] 副标题 500 字重 + 0.82 透明度 */
+  font-weight: 500;
+  opacity: 0.82;
   font-variant-numeric: tabular-nums;
 }
 
@@ -207,5 +213,4 @@ onBeforeUnmount(() => {
   .app-tip--above.card-tip-enter-from {
     transform: none;
   }
-}
-</style>
+}</style>

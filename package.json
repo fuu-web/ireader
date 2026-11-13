@@ -1,7 +1,7 @@
 {
   "name": "ireader",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "IReader - 离线本地漫画 PDF 阅读器",
   "author": "IReader",
   "type": "module",
@@ -47,7 +47,7 @@
     "productName": "IReader",
     "publish": {
       "provider": "github",
-      "owner": "hi-done",
+      "owner": "fuu-web",
       "repo": "ireader"
     },
     "directories": {
@@ -83,6 +83,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "asar": true
   }
 }

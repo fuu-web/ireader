@@ -126,6 +126,26 @@ const MIGRATIONS: Array<(db: Database.Database) => void> = [
       db.exec('ALTER TABLE reading_progress ADD COLUMN cover_single_page INTEGER;')
     }
   },
+
+  // v8: 画廊元数据（作者归组 + 画廊 id 去重）
+  // author_key 是规范化后的比较键（小写、单空格），author_name 用于展示；
+  // gallery_id 来自 info.json 的 id，同一本重复下载不会产生第二张卡片。
+  (db) => {
+    if (!hasColumn(db, 'books', 'author_key')) {
+      db.exec('ALTER TABLE books ADD COLUMN author_key TEXT;')
+    }
+    if (!hasColumn(db, 'books', 'author_name')) {
+      db.exec('ALTER TABLE books ADD COLUMN author_name TEXT;')
+    }
+    if (!hasColumn(db, 'books', 'gallery_id')) {
+      db.exec('ALTER TABLE books ADD COLUMN gallery_id TEXT;')
+    }
+    if (!hasColumn(db, 'collections', 'author_key')) {
+      db.exec('ALTER TABLE collections ADD COLUMN author_key TEXT;')
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_books_author ON books(author_key);')
+    db.exec('CREATE INDEX IF NOT EXISTS idx_books_gallery ON books(gallery_id);')
+  },
 ]
 
 /**

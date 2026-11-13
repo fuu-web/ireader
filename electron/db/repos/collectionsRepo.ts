@@ -8,21 +8,46 @@ export interface CollectionRow {
   id: number
   title: string
   created_at: number
+  /** 作者归组键（自动按作者建的合集才有；用户手建的为 NULL） */
+  author_key: string | null
 }
 
 export const collectionsRepo = {
-  create(title: string, createdAt: number): CollectionRow {
+  create(title: string, createdAt: number, authorKey: string | null = null): CollectionRow {  // [改动] create() 加 authorKey 参数
     const result = getDatabase()
-      .prepare('INSERT INTO collections (title, created_at) VALUES (?, ?)')
-      .run(title, createdAt)
+      .prepare('INSERT INTO collections (title, created_at, author_key) VALUES (?, ?, ?)')
+      .run(title, createdAt, authorKey)
     return getDatabase()
       .prepare('SELECT * FROM collections WHERE id = ?')
       .get(Number(result.lastInsertRowid)) as CollectionRow
   },
 
+  /** 按作者键找自动建过的合集（用户改过名也能命中） */
+  // [新增] 改名后仍能认领的自动合集
+  findByAuthorKey(authorKey: string): CollectionRow | undefined {
+    return getDatabase()
+      .prepare('SELECT * FROM collections WHERE author_key = ?')
+      .get(authorKey) as CollectionRow | undefined
+  },
+
+  /** 按标题找（用户手建的合集没有 author_key，只能靠标题命中） */
+  findByTitle(title: string): CollectionRow | undefined {
+    return getDatabase()
+      .prepare('SELECT * FROM collections WHERE title = ? ORDER BY id LIMIT 1')
+      .get(title) as CollectionRow | undefined
+  },
+
   list(): CollectionRow[] {
     return getDatabase()
       .prepare('SELECT * FROM collections ORDER BY created_at DESC')
+      .all() as CollectionRow[]
+  },
+
+  /** 按作者自动创建/认领的合集（删除书籍后据此清理空合集） */
+  // [新增] 自动作者合集（清理空合集用）
+  listAutoCreated(): CollectionRow[] {
+    return getDatabase()
+      .prepare('SELECT * FROM collections WHERE author_key IS NOT NULL')
       .all() as CollectionRow[]
   },
 

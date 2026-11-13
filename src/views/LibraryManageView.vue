@@ -110,7 +110,8 @@
               <span class="title" :title="row.book.title">{{ row.book.title }}</span>
               <span class="sub">
                 <span>
-                  {{ t('manage.meta', { format: row.book.format.toUpperCase(), pages: row.book.totalPages }) }}
+                  <!-- [改动] 格式列用 formatLabel() -->
+                  {{ t('manage.meta', { format: formatLabel(row.book.format), pages: row.book.totalPages }) }}
                 </span>
                 <span v-if="row.book.missing" class="missing">{{ t('library.book.missingBadge') }}</span>
               </span>
@@ -156,13 +157,12 @@
     </transition>
   </div>
 </template>
-
 <script setup lang="ts">
 // 漫画批量管理页：列表（封面 / 名称 / 所属位置 / 导入时间）+ 位置与关键字筛选 + 批量删除
 // 对应设计文档 specs/漫画批量管理设计方案-20261025.md §8.3 / §9
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Book } from '../../shared/types'
+import type { Book, BookFormat } from '../../shared/types'
 import { useLibraryStore } from '../stores/library'
 import { IpcError } from '../services/ipc'
 import { buildManageRows, filterManageRows, formatAddedAt } from '../services/libraryManage'
@@ -196,6 +196,11 @@ const LOCATION_OPTIONS = computed<SelectOption<CollectionFilter>[]>(() => [
 
 const allRows = computed(() => buildManageRows(library.books, library.collections))
 const rows = computed(() => filterManageRows(allRows.value, keyword.value, collectionFilter.value))
+
+/** 格式展示名：图片文件夹漫画用本地化文案，其余沿用大写扩展名（PDF / EPUB / CBZ / MOBI） */
+function formatLabel(format: BookFormat): string {
+  return format === 'dir' ? t('manage.formatDir') : format.toUpperCase()
+}
 
 const isSelected = (id: number) => selected.value.includes(id)
 
@@ -255,14 +260,26 @@ async function load() {
 
 async function confirmRemove(deleteFile: boolean) {
   dialogOpen.value = false
-  const ids = selectedBooks.value.map((book) => book.id)
+  const targets = selectedBooks.value
+  const ids = targets.map((book) => book.id)
   if (!ids.length) return
   try {
     for (const id of ids) removeFromQueue(id) // 取消仍在排队的封面生成
     const removed = await library.removeMany(ids, deleteFile)
+    // 图片文件夹漫画不删目录：只要选中里含 dir，就要说明文件夹已保留
+    const dirKept = deleteFile && targets.some((book) => book.format === 'dir')
     selected.value = []
     if (removed.length) {
-      showToast(tp(deleteFile ? 'manage.toast.removedWithFile' : 'manage.toast.removed', removed.length))
+      showToast(
+        tp(
+          dirKept
+            ? 'manage.toast.removedDirFolderKept'
+            : deleteFile
+              ? 'manage.toast.removedWithFile'
+              : 'manage.toast.removed',
+          removed.length
+        )
+      )
     }
   } catch (e) {
     selected.value = []
@@ -309,7 +326,8 @@ onUnmounted(() => {
 .manage-view {
   height: 100vh;
   overflow-y: auto;
-  background: var(--page-veil), url('/bg001.jpg') center / cover no-repeat, var(--bg);
+  /* [改动] 背景层接 --page-bg-image */
+  background: var(--page-veil), var(--page-bg-image) center / cover no-repeat, var(--bg);
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -605,5 +623,4 @@ onUnmounted(() => {
 .toast-fade-enter-from,
 .toast-fade-leave-to {
   opacity: 0;
-}
-</style>
+}</style>

@@ -17,7 +17,20 @@ export type RowOrder = 'ltr' | 'rtl'
 export type ZoomMode = 'fitWidth' | 'fitHeight' | 'original' | 'custom'
 export type SortBy = 'lastOpenedAt' | 'addedAt' | 'title'
 export type SortOrder = 'asc' | 'desc'
-export type BookFormat = 'pdf' | 'epub' | 'cbz' | 'mobi'
+// [新增] 'dir'：图片文件夹漫画（一个目录 = 一本书）
+export type BookFormat = 'pdf' | 'epub' | 'cbz' | 'mobi' | 'dir'
+
+/**
+ * 逐页图片供给的格式：由主进程按页读图、渲染层走同一套页组/缓存管线
+ * （`ireader://{format}/{bookId}/{page}`）。新增此类格式时只需改这里。
+ */
+export const PAGED_IMAGE_FORMATS = ['cbz', 'mobi', 'dir'] as const
+export type PagedImageFormat = (typeof PAGED_IMAGE_FORMATS)[number]
+
+/** 该格式是否按「逐页图片」供给（cbz / mobi / dir） */
+export function isPagedImageFormat(format: BookFormat): format is PagedImageFormat {
+  return (PAGED_IMAGE_FORMATS as readonly string[]).includes(format)
+}
 
 export interface ReadingProgress {
   page: number // 当前页组第一页页码，从 1 起
@@ -47,6 +60,8 @@ export interface Book {
   addedAt: number
   lastOpenedAt: number | null
   collectionId: number | null // 所属合集；null = 未分组
+  /** 作者（画廊格式由 info.json 提供；普通文件为 null） */
+  author: string | null
   missing: boolean
   progress: ReadingProgress | null
 }
@@ -103,6 +118,11 @@ export interface Settings {
   coverSinglePage: boolean
   /** EPUB 字号百分比（100 = 默认） */
   epubFontSize: number
+  /**
+   * 自定义整窗背景图文件名（userData/backgrounds 下，经 ireader://background/{name} 取图）；
+   * null = 使用内置 bg001.jpg
+   */
+  background: string | null
   /** 界面语言偏好 */
   locale: LocalePreference
   /** AI 框选翻译设置 */
@@ -116,6 +136,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preloadSpreads: 2,
   coverSinglePage: true,
   epubFontSize: 100,
+  background: null,  // [新增] 默认用内置背景
   locale: 'system',
   ai: { enabled: false, targetLang: 'zh-CN', activeProviderId: null, providers: [] },
 }
@@ -162,7 +183,10 @@ export interface LibraryRemoveResult {
 
 export interface ReaderOpenResult {
   format: BookFormat
-  /** ireader://pdf/{id}、ireader://epub/{id}（直出原文件）或 ireader://cbz|mobi/{id}（逐页地址前缀） */
+  /**
+   * ireader://pdf/{id}、ireader://epub/{id}（直出原文件），
+   * 或 ireader://cbz|mobi|dir/{id}（逐页图片地址前缀）
+   */
   fileUrl: string
   numPages: number
   progress: ReadingProgress | null

@@ -7,13 +7,37 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { booksRepo } from '../db/repos/booksRepo'
 import { getCoverFilePath } from './coverService'
+// [新增] 背景图路径
+import { getBackgroundPath } from './backgroundService'
 import { detectFormat } from './libraryService'
 import { readPage as readCbzPage } from './cbzService'
 import { readPage as readMobiPage } from './mobiService'
+// [新增] dir 读页
+import { readPage as readDirPage } from './dirService'
 import { readPage as readEpubPage } from './epubService'
 import * as logger from './logger'
+import type { BookFormat } from '../../shared/types'  // [改动] BookFormat
 
 export const IREADER_PROTOCOL = 'ireader'
+
+/**
+ * 逐页图片供给的 host → 读页实现。
+ * cbz / mobi / dir 与「书籍格式」同名；epubpage 是 EPUB 内页图的子协议，校验时按 epub 判定。
+ * 新增图片型格式时只需在这里加一行。
+ */
+// [新增] 逐页图片格式 → 读页实现表（新增格式只改这里）
+const PAGED_PAGE_READERS = {
+  cbz: readCbzPage,
+  mobi: readMobiPage,
+  dir: readDirPage,
+  epubpage: readEpubPage,
+} as const
+
+type PagedHost = keyof typeof PAGED_PAGE_READERS
+
+function isPagedHost(kind: string): kind is PagedHost {
+  return kind in PAGED_PAGE_READERS
+}
 
 /** 必须在 app ready 之前调用，声明协议为特权协议（支持流式、fetch、跨源访问） */
 export function registerProtocolScheme(): void {
@@ -51,16 +75,29 @@ export function registerProtocolHandler(): void {
     // url.hostname 对应 pdf | epub | cbz | cover | pdfjs，url.pathname 对应 /{bookId} 或资源路径
     const kind = url.hostname
 
+    // 自定义整窗背景图：ireader://background/{文件名}，不是书籍数据，须在 bookId 校验前分流
+    // [新增] 路由 ireader://background/{name}
+    if (kind === 'background') {
+      const name = decodeURIComponent(url.pathname.replace(/^\//, ''))
+      const filePath = getBackgroundPath(name)
+      if (!filePath) {
+        return new Response('Not Found', { status: 404 })
+      }
+      return withCors(await net.fetch(pathToFileURL(filePath).toString()))
+    }
+
     // pdf.js 运行时资源（cmaps / standard_fonts）不是书籍数据，须在 bookId 校验前分流
     if (kind === 'pdfjs') {
       return servePdfjsAsset(url.pathname)
     }
 
-    // cbz / mobi / epubpage 逐页供给：/{kind}/{bookId}/{page}；须在通用 bookId 解析前分流（通用解析对 /123/45 得 NaN）
-    if (kind === 'cbz' || kind === 'mobi' || kind === 'epubpage') {
-      const serve = kind === 'cbz' ? readCbzPage : kind === 'mobi' ? readMobiPage : readEpubPage
+    // cbz / mobi / dir / epubpage 逐页供给：/{kind}/{bookId}/{page}；须在通用 bookId 解析前分流（通用解析对 /123/45 得 NaN）
+    // [改动] 逐页图片统一走 servePagedImage
+    if (isPagedHost(kind)) {
       // epubpage 是「EPUB 内页图」的子协议，书籍格式校验仍按 epub 判定
-      return servePagedImage(kind, url, serve, kind === 'epubpage' ? 'epub' : kind)
+      const format: BookFormat = kind === 'epubpage' ? 'epub' : kind
+      // [新增] 四个逐页格式共用读页/校验/错误文案
+      return servePagedImage(kind, url, PAGED_PAGE_READERS[kind], format)
     }
 
     const bookId = Number(url.pathname.replace(/^\//, ''))
@@ -91,12 +128,12 @@ export function registerProtocolHandler(): void {
 }
 
 /**
- * 逐页图片供给（cbz / mobi / epubpage 共用）：URL 形如 /{bookId}/{page}，page 为 1 基阅读页码。
- * 三个格式的单页读取函数签名一致，差异只在格式校验与错误语义文案；
+ * 逐页图片供给（cbz / mobi / dir / epubpage 共用）：URL 形如 /{bookId}/{page}，page 为 1 基阅读页码。
+ * 四个格式的单页读取函数签名一致，差异只在格式校验与错误语义文案；
  * expectedFormat 用于子协议（epubpage → epub）的格式闸门。
  */
 async function servePagedImage(
-  kind: 'cbz' | 'mobi' | 'epubpage',
+  kind: 'cbz' | 'mobi' | 'dir' | 'epubpage',  // [改动] host 加 dir
   url: URL,
   readPage: (filePath: string, page: number) => Promise<{ data: Buffer; contentType: string } | null>,
   expectedFormat: string = kind

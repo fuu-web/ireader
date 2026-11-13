@@ -1,11 +1,16 @@
-// 图片型阅读页渲染：经 ireader://{cbz|mobi}/{id}/{page} 拉取单张图片并按 pdf.js 同规格绘制到 canvas
+// 图片型阅读页渲染：经 ireader://{cbz|mobi|dir}/{id}/{page} 拉取单张图片并按 pdf.js 同规格绘制到 canvas
 // 对应设计文档《CBZ漫画格式支持设计方案》§4.3 / §8.1 与 specs/MOBI漫画格式支持设计方案-20261025.md §8.1
 
 import { t } from '../i18n'
+import type { PagedImageFormat } from '../../shared/types'  // [改动] 引 PagedImageFormat
 import type { RenderPageOptions } from './pdf'
 
-/** 逐页图片供给的格式：主进程 ireader:// 按此 host 分流并校验书籍格式 */
-export type ImagePageFormat = 'cbz' | 'mobi'
+/**
+ * 逐页图片供给的格式：主进程 ireader:// 按此 host 分流并校验书籍格式。
+ * 与 shared/types 的 PagedImageFormat 同源（dir = 图片文件夹漫画：一个目录 = 一本书）。
+ */
+// [改动] 别名改为 PagedImageFormat（含 dir）
+export type ImagePageFormat = PagedImageFormat
 
 /** 单页图片地址（page 为 1 基阅读页码） */
 export function imagePageUrl(format: ImagePageFormat, bookId: number, page: number): string {

@@ -4,6 +4,7 @@
 
 import { reactive } from 'vue'
 import type { Book, BookFormat } from '../../shared/types'
+import { isPagedImageFormat } from '../../shared/types'  // [新增] 引 isPagedImageFormat
 import { ipc } from './ipc'
 import { loadPdfWithTask, renderCoverThumbnail } from './pdf'
 
@@ -122,7 +123,8 @@ async function processOne(
       await ipc.cover.submit(bookId, image, 0)
       return
     }
-    if (format === 'cbz' || format === 'mobi') {
+    // [改动] 封面分支含 dir
+    if (isPagedImageFormat(format)) {
       const image = await renderImageCoverJpeg(`ireader://${format}/${bookId}/1`)
       // 页数已在导入时按图片页表统计入库，此处回写同值
       await ipc.cover.submit(bookId, image, totalPages)

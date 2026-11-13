@@ -2,6 +2,7 @@
 // 对应设计文档 specs/20261105-合集继续阅读栏3D硬皮书设计方案.md §4.1 / §5.3
 
 import type { BookFormat, Direction, ReadingProgress } from '../../shared/types'
+import { isPagedImageFormat } from '../../shared/types'  // [新增] 引 isPagedImageFormat
 import { thumbPageOf, type ProgressInput } from './bookProgress'
 
 /** 单页取图描述（渲染层内部类型，不是 IPC 契约，故不进 shared/types.ts） */
@@ -42,7 +43,8 @@ export interface PageThumbBook extends ProgressInput {
  * 无进度的书也照样取图——`thumbPageOf` 已把无进度归一到第 1 页，于是左右两面自然就是第 1 / 2 页。
  */
 function thumbOf(book: PageThumbBook, page: number): PageThumb | null {
-  if (book.format === 'cbz' || book.format === 'mobi') {
+  // [改动] 判断改 isPagedImageFormat（dir 也有缩略图）
+  if (isPagedImageFormat(book.format)) {
     return { kind: 'image', url: `ireader://${book.format}/${book.id}/${page}` }
   }
   if (book.format === 'pdf') return { kind: 'pdf', bookId: book.id, page }

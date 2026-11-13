@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { markRaw, ref, shallowRef } from 'vue'
 import type { Direction, ReadingMode, RowOrder, ZoomMode } from '../../shared/types'
+import { isPagedImageFormat } from '../../shared/types'  // [新增] 引 isPagedImageFormat
 import { ipc } from '../services/ipc'
 import { t } from '../i18n'
 import { loadPdfWithTask, type PdfLoadingTask } from '../services/pdf'
@@ -49,10 +50,18 @@ export const useReaderStore = defineStore('reader', () => {
 
     const result = await ipc.reader.open(id)
     bookId.value = id
-    if (result.format === 'cbz' || result.format === 'mobi') {
+    // [改动] dir 共用图片页管线
+    if (isPagedImageFormat(result.format)) {
       // 页数来自导入时的页表统计；为 0 说明无可用图片（文字型 / 加密 / 损坏），与 PDF 加载失败同样进错误页
       if (result.numPages <= 0) {
-        throw new Error(t(result.format === 'mobi' ? 'reader.mobiNoImages' : 'reader.zipNoImages'))
+        // 三种格式各有一句更贴切的提示，按格式取键
+        // [改动] 空图片提示按格式取键
+        const emptyKeys = {
+          mobi: 'reader.mobiNoImages',
+          dir: 'reader.dirNoImages',
+          cbz: 'reader.zipNoImages',
+        } as const
+        throw new Error(t(emptyKeys[result.format]))
       }
       doc.value = markRaw({ kind: 'image' as const, format: result.format, bookId: id })
       numPages.value = result.numPages

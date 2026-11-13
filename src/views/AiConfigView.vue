@@ -128,7 +128,6 @@
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 // AI 配置页：总开关 / 译文语言 / 多模型配置（OpenAI 兼容接口）
 // 对应设计文档《20261102-AI框选翻译功能设计方案》§9.3
@@ -357,7 +356,8 @@ async function testDraft(): Promise<void> {
 .ai-view {
   height: 100vh;
   overflow-y: auto;
-  background: var(--page-veil), url('/bg001.jpg') center / cover no-repeat, var(--bg);
+  /* [改动] 背景层接 --page-bg-image */
+  background: var(--page-veil), var(--page-bg-image) center / cover no-repeat, var(--bg);
   color: var(--text);
 }
 
@@ -638,5 +638,4 @@ async function testDraft(): Promise<void> {
   .row-label {
     flex: 0 0 auto;
   }
-}
-</style>
+}</style>

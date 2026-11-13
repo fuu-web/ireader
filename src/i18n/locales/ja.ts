@@ -38,6 +38,14 @@ export const ja = {
   'settings.theme.system': 'システム設定に従う',
   'settings.theme.light': 'ライト',
   'settings.theme.dark': 'ダーク',
+  // [新增] 背景图 7 条（日文）
+  'settings.background.label': '背景画像',
+  'settings.background.custom': 'カスタム画像',
+  'settings.background.default': 'デフォルト画像',
+  'settings.background.choose': '画像を選択…',
+  'settings.background.reset': 'デフォルトに戻す',
+  'settings.background.chooseFailed': '背景画像を読み込めませんでした。別の画像でお試しください',
+  'settings.background.resetFailed': '既定の背景に戻せませんでした。後でもう一度お試しください',
   'settings.data.stats': '読書時間の統計',
   'settings.data.statsHint': '読書の記録を見る',
   'settings.data.manage': '漫画の一括管理',
@@ -63,11 +71,9 @@ export const ja = {
   'settings.update.downloadFailed': '更新のダウンロードに失敗しました',
 
   // —— ライブラリ ——
-  'library.title': '漫画ライブラリ',
-  'library.subtitle': 'オフラインで読めて、前回の続きからすぐ再開',
   'library.import': '＋ 本をインポート',
   'library.importPlain': '本をインポート',
-  'library.importFolder': 'フォルダをインポート',
+  'library.importFiles': 'ファイルをインポート',  // [新增] importFiles（日文）
   'library.search.placeholder': 'タイトルを検索…',
   'library.sort.label': '並び替え',
   'library.sort.recent': '最近読んだ順',
@@ -119,6 +125,7 @@ export const ja = {
   'library.toast.addedToCollection.one': '「{title}」に{count}冊を追加しました',
   'library.toast.addedToCollection.other': '「{title}」に{count}冊を追加しました',
   'library.toast.removedWithFile': '「{title}」を削除し、ファイルも削除しました',
+  'library.toast.removedDirFolderKept': '「{title}」を削除しました（フォルダーは保持）',  // [新增] フォルダーは保持（日文）
   'library.toast.removed': '「{title}」を削除しました',
   'library.toast.relinked': '「{title}」を再リンクしました',
   'library.toast.renamed': '「{title}」に名前を変更しました',
@@ -188,6 +195,7 @@ export const ja = {
   'reader.zipNoImages': 'アーカイブに認識可能な画像がありません',
   'reader.mobiNoImages':
     'この MOBI に認識可能な画像がありません（現在は画像ベースのマンガ MOBI のみ対応）',
+  'reader.dirNoImages': 'このフォルダに認識可能な画像がありません（jpg / png / webp / gif 対応）',  // [新增] 空目录提示（日文）
   'reader.invalidBookId': '無効な書籍 ID：{id}',
   'reader.epubLoadFailed': 'EPUB の読み込みに失敗しました（HTTP {status}）',
   'reader.pageImageFailed': '画像ページの読み込みに失敗しました（HTTP {status}）',
@@ -231,6 +239,7 @@ export const ja = {
   'manage.title': '漫画の一括管理',
   'manage.total': '全 {count} 冊',
   'manage.meta': '{format} · {pages} ページ',
+  'manage.formatDir': '画像フォルダ',  // [新增] formatDir（日文）
   'manage.searchPlaceholder': 'タイトルを検索…',
   'manage.filter.location': '収録場所',
   'manage.filter.all': 'すべて',
@@ -261,6 +270,9 @@ export const ja = {
   'manage.toast.removed.one': '{count} 冊を削除しました',
   'manage.toast.removed.other': '{count} 冊を削除しました',
   'manage.toast.removedWithFile.one': '{count} 冊をファイルごと削除しました',
+  // [新增] 批量删除提示（日文）
+  'manage.toast.removedDirFolderKept.other': '{count} 冊を削除しました（フォルダーは保持）',
+  'manage.toast.removedDirFolderKept.one': '{count} 冊を削除しました（フォルダーは保持）',
   'manage.toast.removedWithFile.other': '{count} 冊をファイルごと削除しました',
 
   // —— AI 範囲選択翻訳（設定 + 閲覧画面） ——

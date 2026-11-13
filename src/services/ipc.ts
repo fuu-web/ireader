@@ -33,6 +33,7 @@ function api() {
 export const ipc = {
   dialog: {
     pickBookFiles: () => unwrap(api().dialog.pickBookFiles()),
+    /** 选择漫画文件夹（可多选）：返回 null 表示用户取消 */  // [改动] pickFolder() 类型改多选
     pickFolder: () => unwrap(api().dialog.pickFolder()),
   },
   library: {
@@ -58,6 +59,13 @@ export const ipc = {
   cover: {
     submit: (bookId: number, image: ArrayBuffer, numPages: number) =>
       unwrap(api().cover.submit(bookId, image, numPages)),
+  },
+  // [新增] background.choose() / reset()
+  background: {
+    /** 选择自定义背景图（返回保存后的文件名；取消为 null） */
+    choose: () => unwrap(api().background.choose()),
+    /** 删除已保存的自定义背景图 */
+    reset: () => unwrap(api().background.reset()),
   },
   collection: {
     create: (title: string) => unwrap(api().collection.create(title)),

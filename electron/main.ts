@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { initDatabase, closeDatabase } from './db/database'
 import { initCoverService } from './services/coverService'
+import { initBackgroundService } from './services/backgroundService'  // [新增] 背景图服务
 import { registerProtocolHandler, registerProtocolScheme } from './services/protocol'
 import { registerIpcHandlers } from './ipc/handlers'
 import { initLogger, attachProcessErrorHandlers, info, error } from './services/logger'
@@ -99,6 +100,8 @@ app.whenReady().then(() => {
   try {
     initDatabase(userDataDir)
     initCoverService(userDataDir)
+    // [新增] 启动时初始化背景图目录
+    initBackgroundService(userDataDir)
   } catch (e) {
     error(`init failed: ${(e as Error).stack ?? String(e)}`)
     throw e

@@ -37,6 +37,14 @@ export const zhCN = {
   'settings.theme.system': '跟随系统',
   'settings.theme.light': '浅色',
   'settings.theme.dark': '深色',
+  // [新增] 背景图 7 条
+  'settings.background.label': '背景图片',
+  'settings.background.custom': '自定义图片',
+  'settings.background.default': '默认图片',
+  'settings.background.choose': '选择图片…',
+  'settings.background.reset': '恢复默认',
+  'settings.background.chooseFailed': '选择背景图失败，请换一张图片重试',
+  'settings.background.resetFailed': '恢复默认背景失败，请稍后重试',
   'settings.data.stats': '阅读时间统计',
   'settings.data.statsHint': '查看阅读足迹',
   'settings.data.manage': '漫画批量管理',
@@ -62,11 +70,9 @@ export const zhCN = {
   'settings.update.downloadFailed': '下载更新失败',
 
   // —— 文库主页与合集 ——
-  'library.title': '漫画文库',
-  'library.subtitle': '本地离线阅读，随时接续上次的进度',
   'library.import': '＋ 导入书籍',
   'library.importPlain': '导入书籍',
-  'library.importFolder': '导入文件夹',
+  'library.importFiles': '导入文件',  // [新增] importFiles
   'library.search.placeholder': '搜索书名…',
   'library.sort.label': '排序方式',
   'library.sort.recent': '最近阅读',
@@ -118,6 +124,7 @@ export const zhCN = {
   'library.toast.addedToCollection.one': '已添加 {count} 本至「{title}」',
   'library.toast.addedToCollection.other': '已添加 {count} 本至「{title}」',
   'library.toast.removedWithFile': '已移除并删除《{title}》',
+  'library.toast.removedDirFolderKept': '已移除《{title}》（图片文件夹已保留）',  // [新增] 删除 dir 保留文件夹提示
   'library.toast.removed': '已移除《{title}》',
   'library.toast.relinked': '已重新定位《{title}》',
   'library.toast.renamed': '已重命名为《{title}》',
@@ -186,6 +193,7 @@ export const zhCN = {
   'reader.viewNotReady': '阅读区未就绪',
   'reader.zipNoImages': '压缩包中没有可识别的图片',
   'reader.mobiNoImages': '此 MOBI 中没有可识别的图片（当前仅支持图片型漫画 MOBI）',
+  'reader.dirNoImages': '该文件夹中没有可识别的图片（支持 jpg / png / webp / gif）',  // [新增] 空目录提示
   'reader.invalidBookId': '无效的书籍 ID：{id}',
   'reader.epubLoadFailed': '加载 EPUB 失败（HTTP {status}）',
   'reader.pageImageFailed': '加载图片页失败（HTTP {status}）',
@@ -229,6 +237,7 @@ export const zhCN = {
   'manage.title': '漫画批量管理',
   'manage.total': '共 {count} 本',
   'manage.meta': '{format} · {pages} 页',
+  'manage.formatDir': '图片文件夹',  // [新增] formatDir 图片文件夹
   'manage.searchPlaceholder': '搜索书名…',
   'manage.filter.location': '所属位置',
   'manage.filter.all': '全部',
@@ -259,6 +268,9 @@ export const zhCN = {
   'manage.toast.removed.one': '已移除 {count} 本',
   'manage.toast.removed.other': '已移除 {count} 本',
   'manage.toast.removedWithFile.one': '已移除并删除 {count} 本',
+  // [新增] 批量删除提示
+  'manage.toast.removedDirFolderKept.other': '已移除 {count} 本（图片文件夹已保留）',
+  'manage.toast.removedDirFolderKept.one': '已移除 {count} 本（图片文件夹已保留）',
   'manage.toast.removedWithFile.other': '已移除并删除 {count} 本',
 
   // —— AI 框选翻译（配置页 + 阅读页） ——

@@ -65,6 +65,25 @@
               @change="save"
             />
           </div>
+          <!-- 整窗背景图：选图后复制进 userData/backgrounds，经 ireader://background/{name} 供给 -->
+          <div class="row">
+            <span class="row-label">{{ t('settings.background.label') }}</span>
+            <div class="row-actions">
+              <span class="bg-state">
+                {{
+                  form.background
+                    ? t('settings.background.custom')
+                    : t('settings.background.default')
+                }}
+              </span>
+              <button @click="chooseBackground">{{ t('settings.background.choose') }}</button>
+              <button v-if="form.background" class="ghost" @click="resetBackground">
+                {{ t('settings.background.reset') }}
+              </button>
+            </div>
+          </div>
+          <!-- 失败反馈：选图/恢复出错时明确告知，不再只写控制台 -->
+          <p v-if="bgError" class="bg-error">{{ bgError }}</p>
         </div>
       </section>
 
@@ -177,7 +196,6 @@
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 // 设置页：阅读偏好、外观、数据入口与关于（版本 + 应用内更新）
 // 视觉优化对应设计文档《设置与统计页视觉优化设计方案》§5.1；更新功能对应《软件更新功能设计方案》§8；
@@ -243,6 +261,38 @@ async function save() {
     // 静默保存语义保持不变：失败只记日志（读不到勾选值等问题由「表单未落库」体现），
     // 不弹窗打断设置流程；正常情况下失败仅剩主进程异常
     console.error('[settings] 保存设置失败', e)
+  }
+}
+
+// —— 背景图片（自定义整窗底图） ——
+
+/** 选图/恢复失败时的行内提示（失败不再只写控制台，用户能看到） */
+const bgError = ref<string | null>(null)
+
+/** 选图：主进程复制落盘并返回文件名，写回设置后由 theme.ts 改写 CSS 变量 */
+async function chooseBackground() {
+  bgError.value = null
+  try {
+    const name = await ipc.background.choose()
+    if (!name) return
+    form.background = name
+    await save()
+  } catch (e) {
+    console.error('[settings] 选择背景图失败', e)
+    bgError.value = t('settings.background.chooseFailed')
+  }
+}
+
+/** 恢复默认背景：删除落盘文件并把设置置空 */
+async function resetBackground() {
+  bgError.value = null
+  try {
+    await ipc.background.reset()
+    form.background = null
+    await save()
+  } catch (e) {
+    console.error('[settings] 恢复默认背景失败', e)
+    bgError.value = t('settings.background.resetFailed')
   }
 }
 
@@ -352,7 +402,8 @@ function retry() {
 .settings-view {
   height: 100vh;
   overflow-y: auto;
-  background: var(--page-veil), url('/bg001.jpg') center / cover no-repeat, var(--bg);
+  /* [改动] 背景层接 --page-bg-image */
+  background: var(--page-veil), var(--page-bg-image) center / cover no-repeat, var(--bg);
   color: var(--text);
 }
 
@@ -362,6 +413,8 @@ function retry() {
   gap: 28px;
   max-width: 640px;
   padding: 20px 40px 48px;
+  /* 整块设置面板贴右：左外边距吃掉剩余宽度（原为贴左，右侧留大片空白） */
+  margin-left: auto;
 }
 
 .group-title {
@@ -391,8 +444,7 @@ function retry() {
 }
 
 .row:not(:last-child) {
-  border-bottom: 1px solid var(--border);
-}
+  border-bottom: 1px solid var(--border);}
 
 /* 标签左对齐、弹性宽度：英文长标签允许换行，控件优先 */
 .row-label {
@@ -401,6 +453,29 @@ function retry() {
   font-size: 13.5px;
   color: var(--text-secondary);
   overflow-wrap: break-word;
+}
+
+/* 行内右侧动作组（背景图：状态文字 + 选择 / 恢复默认） */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bg-state {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* 背景图操作失败的行内提示：右对齐到操作区下方 */
+.bg-error {
+  margin: 6px 0 0 auto;
+  max-width: 460px;
+  font-size: 12.5px;
+  color: var(--danger);
+  text-align: right;
 }
 
 /* 「数据」分组入口行：整行可点，负边距撑满卡片宽度（点击热区覆盖卡片内边距） */
@@ -566,5 +641,4 @@ function retry() {
   font-size: 12px;
   color: var(--text-muted);
   text-align: right;
-}
-</style>
+}</style>

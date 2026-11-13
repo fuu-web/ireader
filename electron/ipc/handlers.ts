@@ -5,6 +5,8 @@ import { BrowserWindow, dialog, ipcMain, screen, shell, type IpcMainInvokeEvent 
 import { libraryService } from '../services/libraryService'
 import { collectionsRepo, toCollection } from '../db/repos/collectionsRepo'
 import { getCoverUrl, saveCover, removeCover } from '../services/coverService'
+// [新增] 背景图服务
+import { saveBackground, clearBackgrounds } from '../services/backgroundService'
 import { computeShotSize } from '../services/captureShot'
 import * as logger from '../services/logger'
 import { booksRepo } from '../db/repos/booksRepo'
@@ -14,7 +16,7 @@ import { settingsService } from '../services/settingsService'
 import { statsService } from '../services/statsService'
 import { aiService } from '../services/aiService'
 import { updaterService } from '../services/updaterService'
-import { getBookFilesFilterName } from '../services/appLocale'
+import { getBookFilesFilterName, getImagesFilterName } from '../services/appLocale'  // [改动] 过滤器名加图片
 import fs from 'node:fs'
 import {
   fail,
@@ -128,10 +130,12 @@ export function registerIpcHandlers(getWin: () => BrowserWindow | null): void {
   ipcMain.handle('dialog:pickFolder', async () => {
     const win = getWin()
     if (!win) return ok(null)
+    // 多选文件夹：一个文件夹 = 一本漫画，选择下载总目录即可一次导入其下每本  // [改动] 文件夹选择改多选
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory'],
+      // [改动] 文件夹可多选（一个文件夹 = 一本）
+      properties: ['openDirectory', 'multiSelections'],
     })
-    return ok(canceled ? null : filePaths[0] ?? null)
+    return ok(canceled || !filePaths.length ? null : filePaths)  // [改动] 返回全部路径
   })
 
   ipcMain.handle(
@@ -279,8 +283,34 @@ export function registerIpcHandlers(getWin: () => BrowserWindow | null): void {
     )
   )
 
-  ipcMain.handle('settings:all', wrap(() => settingsRepo.getAll()))
+  // 背景图：选图后复制进 userData/backgrounds 并返回文件名（设置落库由渲染层负责）
+  ipcMain.handle(
+    // [新增] 背景图选择
+    'background:choose',
+    wrapAsync(async () => {
+      const win = getWin()
+      if (!win) return null
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        properties: ['openFile'],
+        filters: [
+          { name: getImagesFilterName(), extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'] },
+        ],
+      })
+      if (canceled || !filePaths.length) return null
+      return saveBackground(filePaths[0])
+    })
+  )
 
+  // 恢复默认背景：删掉自定义图（设置里的 background 由渲染层置 null）
+  ipcMain.handle(
+    // [新增] 恢复默认背景
+    'background:reset',
+    wrap(() => {
+      clearBackgrounds()
+    })
+  )
+
+  ipcMain.handle('settings:all', wrap(() => settingsRepo.getAll()))
   ipcMain.handle(
     'settings:patch',
     wrap((partial: Partial<Settings>) => {

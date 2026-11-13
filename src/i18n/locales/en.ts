@@ -38,6 +38,14 @@ export const en = {
   'settings.theme.system': 'Follow system',
   'settings.theme.light': 'Light',
   'settings.theme.dark': 'Dark',
+  // [新增] 背景图 7 条（英文）
+  'settings.background.label': 'Background image',
+  'settings.background.custom': 'Custom image',
+  'settings.background.default': 'Default image',
+  'settings.background.choose': 'Choose image…',
+  'settings.background.reset': 'Reset to default',
+  'settings.background.chooseFailed': 'Couldn\'t use that image — try another one',
+  'settings.background.resetFailed': 'Couldn\'t restore the default background — try again later',
   'settings.data.stats': 'Reading statistics',
   'settings.data.statsHint': 'View your reading history',
   'settings.data.manage': 'Bulk manga management',
@@ -63,11 +71,9 @@ export const en = {
   'settings.update.downloadFailed': 'Failed to download the update',
 
   // —— Library ——
-  'library.title': 'Manga Library',
-  'library.subtitle': 'Read offline and pick up right where you left off',
   'library.import': '+ Import books',
   'library.importPlain': 'Import books',
-  'library.importFolder': 'Import folder',
+  'library.importFiles': 'Import files',  // [新增] importFiles（英文）
   'library.search.placeholder': 'Search titles…',
   'library.sort.label': 'Sort by',
   'library.sort.recent': 'Recently read',
@@ -119,6 +125,7 @@ export const en = {
   'library.toast.addedToCollection.one': 'Added {count} book to "{title}"',
   'library.toast.addedToCollection.other': 'Added {count} books to "{title}"',
   'library.toast.removedWithFile': 'Removed and deleted "{title}"',
+  'library.toast.removedDirFolderKept': 'Removed "{title}" (folder kept)',  // [新增] folder kept（英文）
   'library.toast.removed': 'Removed "{title}"',
   'library.toast.relinked': 'Relinked "{title}"',
   'library.toast.renamed': 'Renamed to "{title}"',
@@ -188,6 +195,7 @@ export const en = {
   'reader.zipNoImages': 'No recognizable images in the archive',
   'reader.mobiNoImages':
     'No recognizable images in this MOBI (only image-based comic MOBI files are supported)',
+  'reader.dirNoImages': 'No recognizable images in this folder (jpg / png / webp / gif)',  // [新增] 空目录提示（英文）
   'reader.invalidBookId': 'Invalid book ID: {id}',
   'reader.epubLoadFailed': 'Failed to load EPUB (HTTP {status})',
   'reader.pageImageFailed': 'Failed to load image page (HTTP {status})',
@@ -231,6 +239,7 @@ export const en = {
   'manage.title': 'Bulk manga management',
   'manage.total': '{count} books',
   'manage.meta': '{format} · {pages} pages',
+  'manage.formatDir': 'Image folder',  // [新增] formatDir（英文）
   'manage.searchPlaceholder': 'Search title…',
   'manage.filter.location': 'Location',
   'manage.filter.all': 'All',
@@ -261,6 +270,9 @@ export const en = {
   'manage.toast.removed.one': '{count} removed',
   'manage.toast.removed.other': '{count} removed',
   'manage.toast.removedWithFile.one': '{count} removed and deleted',
+  // [新增] 批量删除提示（英文）
+  'manage.toast.removedDirFolderKept.other': '{count} removed (folders kept)',
+  'manage.toast.removedDirFolderKept.one': '{count} removed (folders kept)',
   'manage.toast.removedWithFile.other': '{count} removed and deleted',
 
   // —— AI selection translation (settings + reader) ——

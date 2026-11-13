@@ -20,3 +20,14 @@ export function getBookFilesFilterName(): string {
   }
   return names[getAppLocale()]
 }
+
+/** 背景图文件对话框的过滤器名称（三语言） */
+// [新增] 图片过滤器名（三语）
+export function getImagesFilterName(): string {
+  const names: Record<AppLocale, string> = {
+    'zh-CN': '图片',
+    en: 'Images',
+    ja: '画像',
+  }
+  return names[getAppLocale()]
+}

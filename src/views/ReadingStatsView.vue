@@ -69,7 +69,6 @@
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
 // 阅读统计页：概览卡 + 每日柱状图 + 书籍排行
 // 对应设计文档《阅读时间统计功能设计方案》§9.2
@@ -144,7 +143,8 @@ onMounted(load)
 .stats-view {
   height: 100vh;
   overflow-y: auto;
-  background: var(--page-veil), url('/bg001.jpg') center / cover no-repeat, var(--bg);
+  /* [改动] 背景层接 --page-bg-image */
+  background: var(--page-veil), var(--page-bg-image) center / cover no-repeat, var(--bg);
   color: var(--text);
 }
 
@@ -307,5 +307,4 @@ onMounted(load)
   .skeleton {
     animation: none;
   }
-}
-</style>
+}</style>

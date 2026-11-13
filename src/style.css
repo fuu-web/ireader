@@ -40,16 +40,10 @@
   --menu-shadow: 0 10px 30px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.06);
   --toast-bg: #2c2c2e;
   --toast-text: #f5f5f7;
-  /* 主页 hero 遮罩：左深右浅（文字区在左压暗保白字可读，右侧图完整无遮挡） */
-  --hero-veil: linear-gradient(
-    90deg,
-    rgba(20, 22, 30, 0.55) 0%,
-    rgba(20, 22, 30, 0.3) 40%,
-    rgba(20, 22, 30, 0.06) 70%,
-    rgba(20, 22, 30, 0) 100%
-  );
   /* 整窗背景图纱罩：盖住 bg001.jpg 保内容可读，图在纱下透出约 18% */
   --page-veil: linear-gradient(rgba(245, 245, 247, 0.82), rgba(245, 245, 247, 0.82));
+  /* 整窗背景图：默认内置 bg001.jpg；设置里选了自定义图后由 theme.ts 改写为 ireader://background/{name} */
+  --page-bg-image: url('/bg001.jpg');
   --radius: 8px;
   /* 文库卡片：12 圆角卡片 + 8 圆角封面 + hover 提升阴影（书卡 / 合集卡共用） */
   --card-radius: 12px;
@@ -59,12 +53,14 @@
   --card-shadow-lift-strong: 0 18px 40px rgba(28, 28, 26, 0.18), 0 3px 10px rgba(28, 28, 26, 0.09);
   /* 合集侧栏立体书的接地投影：拼在封面 / 封底的厚度面上（3D 祖先不能加 filter） */
   --book-shadow: rgba(28, 28, 26, 0.24);
-  /* 悬停提示框（书卡与阅读器工具栏使用）：不透明浅底深字——半透明底会强制灰度抗锯齿，
-     小字号会发虚；清晰度优先，层次交给描边与投影 */
-  --tip-bg: #fbfbfd;
+  /* 悬停提示框（书卡与阅读器工具栏使用）：液态玻璃材质——半透明底 + 背景模糊，
+     浮在封面上时会透出并折射下方画面；文字靠加大字重与内高光保持锐度 */
+  --tip-bg: rgba(255, 255, 255, 0.58);
   --tip-text: #1d1d1f;
-  --tip-border: rgba(0, 0, 0, 0.08);
-  --tip-shadow: 0 4px 14px rgba(28, 28, 26, 0.16), 0 1px 3px rgba(28, 28, 26, 0.08);
+  --tip-border: rgba(255, 255, 255, 0.55);
+  --tip-shadow:
+    0 10px 28px rgba(28, 28, 26, 0.22), 0 2px 6px rgba(28, 28, 26, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 /* 深色主题：由 theme.ts 在 documentElement 上设置 data-theme，保持同等精致感 */
@@ -97,20 +93,15 @@
   --card-shadow-lift-strong: 0 20px 44px rgba(0, 0, 0, 0.62), 0 3px 12px rgba(0, 0, 0, 0.4);
   /* 深色底上接地投影需更重，否则立体书会“浮”在背景上 */
   --book-shadow: rgba(0, 0, 0, 0.72);
-  /* 提示框深色材质：不透明深底白字，与浅色主题成对（理由同上：保文字锐度）；书卡与阅读器工具栏共用 */
-  --tip-bg: #2c2c2e;
+  /* 提示框深色材质：与浅色主题成对的液态玻璃（半透明深底 + 背景模糊）；书卡与阅读器工具栏共用 */
+  --tip-bg: rgba(28, 28, 30, 0.56);
   --tip-text: #f5f5f7;
-  --tip-border: rgba(255, 255, 255, 0.12);
-  --tip-shadow: 0 6px 18px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --tip-border: rgba(255, 255, 255, 0.16);
+  --tip-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
   --toast-bg: #2c2c2e;
   --toast-text: #f2f2f7;
-  --hero-veil: linear-gradient(
-    90deg,
-    rgba(10, 11, 14, 0.6) 0%,
-    rgba(10, 11, 14, 0.35) 40%,
-    rgba(10, 11, 14, 0.1) 70%,
-    rgba(10, 11, 14, 0) 100%
-  );
   /* 深色纱更薄，背景图透出约 40% 氛围 */
   --page-veil: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6));
 }
@@ -147,24 +138,43 @@ body {
   padding-left: 84px;
 }
 
-/* 页面头（设置 / 阅读统计等二级页 / 文库合集页）：布局单点定义，视图 scoped 只保留差异部分；
-   吸顶固定仅二级页需要：滚动容器为 .settings-view / .stats-view，内容从毛玻璃下穿过
-   （文库视图整页不滚动，合集头天然常驻顶部，不声明 sticky） */
+/* 页面头（设置 / 阅读统计等二级页 / 文库合集页）：**悬浮胶囊玻璃条**
+   与窗口上/左/右各留一段空隙，做成灵动岛那种"连续曲率"的圆角（corner-shape: squircle，
+   不支持时退化为普通圆角），毛玻璃底 + 外投影，像悬浮在内容之上。
+   吸顶固定仅二级页需要：滚动容器为 .settings-view / .stats-view，内容从胶囊下方穿过 */
 .page-head,
 .collection-head {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 18px 40px;
-  background: var(--surface-alpha);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--border);
+  gap: 14px;
+  /* 左右与内容区（各页 padding 40px）对齐；右边再加 --sbw（滚动条宽度），
+     否则胶囊会比下方内容多伸出一条滚动条的宽度 */
+  margin: 12px calc(40px + var(--sbw, 0px)) 0 40px;
+  padding: 10px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 22px;
+  corner-shape: squircle;
+  background: rgba(255, 255, 255, 0.42);
+  -webkit-backdrop-filter: blur(36px) saturate(200%);
+  backdrop-filter: blur(36px) saturate(200%);
+  box-shadow:
+    0 10px 28px rgba(28, 28, 26, 0.1), 0 2px 6px rgba(28, 28, 26, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-/* z-index 10 高于内容层，低于图表 tooltip(30) / 对话框(100) / toast(200) */
+:root[data-theme='dark'] .page-head,
+:root[data-theme='dark'] .collection-head {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(28, 28, 30, 0.48);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* z-index 10 高于内容层，低于图表 tooltip(30) / 对话框(100) / toast(200)；
+   top 与 margin 一致，滚动时胶囊仍与窗口顶边保持距离 */
 .page-head {
   position: sticky;
-  top: 0;
+  top: 12px;  /* [改动] 胶囊吸顶 12px */
   z-index: 10;
 }
 
